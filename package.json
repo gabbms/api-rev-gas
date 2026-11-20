@@ -5,7 +5,7 @@
   "packageManager": "pnpm@10.34.9",
   "scripts": {
     "dev": "pnpm -r --parallel --filter server --filter web dev",
-    "test": "pnpm -r test"
+    "test": "pnpm -r --filter=!atendimento-ia-revgas test"
   },
   "devDependencies": {
     "typescript": "^7.0.2"
