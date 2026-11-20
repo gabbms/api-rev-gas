@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: revgas_bot
+      POSTGRES_USER: revgas
+      POSTGRES_PASSWORD: revgas
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+
+volumes:
+  pgdata:

@@ -1,0 +1,10 @@
+{
+  "name": "atendimento-ia-revgas",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.34.9",
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter server --filter web dev",
+    "test": "pnpm -r test"
+  }
+}
