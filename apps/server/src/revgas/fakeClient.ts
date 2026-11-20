@@ -3,6 +3,7 @@ import {
   RevgasError,
   type RevgasClient,
   type RevgasCustomer,
+  type RevgasDeal,
   type RevgasProduct,
   type RevgasSale,
   type SalePayload,
@@ -12,6 +13,8 @@ import {
 export class FakeRevgasClient implements RevgasClient {
   customers: (RevgasCustomer & { phone?: string })[] = [];
   products: RevgasProduct[] = [];
+  /** Deals of every establishment; listDeals returns all of them (tests add only what they need). */
+  deals: RevgasDeal[] = [];
   sales: (SalePayload & { id: number })[] = [];
   failNextCreateWith?: RevgasError;
   private nextId = 900_000_001;
@@ -26,6 +29,10 @@ export class FakeRevgasClient implements RevgasClient {
 
   async listProducts(establishmentId: number): Promise<RevgasProduct[]> {
     return this.products.filter((p) => p.establishment_id === establishmentId);
+  }
+
+  async listDeals(_establishmentId: number): Promise<RevgasDeal[]> {
+    return this.deals;
   }
 
   async createSale(payload: SalePayload): Promise<RevgasSale> {

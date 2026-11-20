@@ -34,6 +34,12 @@ describe("loadConfig", () => {
     }
   });
 
+  it("C1: keeps the RevGás customer lookup off unless REVGAS_CUSTOMERS_ENABLED is exactly 'true'", () => {
+    expect(loadConfig({ ...required }).revgasCustomersEnabled).toBe(false);
+    expect(loadConfig({ ...required, REVGAS_CUSTOMERS_ENABLED: "true" }).revgasCustomersEnabled).toBe(true);
+    expect(loadConfig({ ...required, REVGAS_CUSTOMERS_ENABLED: "1" }).revgasCustomersEnabled).toBe(false);
+  });
+
   it("never includes variable values in the error message", () => {
     const env = {
       DATABASE_URL: "postgres://leaky-db-value",

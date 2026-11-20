@@ -44,7 +44,7 @@ afterAll(async () => {
 beforeEach(async () => {
   await resetTables(db);
   const fake = new FakeRevgasClient();
-  const catalog = new Catalog(fake, 2580, {});
+  const catalog = new Catalog(fake, 2580);
   const deps: AgentDeps = {
     anthropic: {} as Pick<Anthropic, "beta">,
     orders: new OrderService(db, catalog, fake, cfg),

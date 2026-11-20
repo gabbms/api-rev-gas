@@ -16,6 +16,10 @@ export type DraftInput = {
   address: DraftAddress;
   payments: { type: PaymentType; amountCents?: number }[];
   observation?: string;
+  /** Customer has an empty cylinder to swap. `false` adds the container product; unknown blocks gas orders. */
+  hasEmptyCylinder?: boolean;
+  /** Kept in the local customer profile after a created sale. */
+  customerName?: string;
 };
 
 export type DraftLine = { productId: number; description: string; quantity: number; unitCents: number; totalCents: number };
@@ -50,7 +54,10 @@ export function formatCents(cents: number): string {
 
 const clean = (s: string | undefined) => (s ?? "").trim();
 
-/** Pure validation + pricing + official summary. Prices come only from `products`. */
+/**
+ * Pure validation + pricing + official summary. Prices come only from `products` and depend on
+ * the payment type (deals), so lines are priced only once payments are known.
+ */
 export function buildDraft(
   input: DraftInput,
   products: SellableProduct[],
@@ -58,15 +65,36 @@ export function buildDraft(
   maxQty: number,
 ): DraftResult {
   const errors: string[] = [];
+  const find = (id: number) => products.find((p) => p.productId === id);
 
   // Merge repeated products, keeping first-seen order.
   const merged = new Map<number, number>();
   for (const item of input.items) merged.set(item.productId, (merged.get(item.productId) ?? 0) + item.quantity);
   if (merged.size === 0) errors.push("Pedido sem itens");
 
+  // C3: gas needs an empty cylinder to swap; without one, the container product is sold too.
+  const gas = [...merged].flatMap(([id, qty]) => {
+    const p = find(id);
+    return p?.containerId ? [{ product: p, containerId: p.containerId, qty }] : [];
+  });
+  if (gas.length > 0 && input.hasEmptyCylinder === undefined) {
+    errors.push("Pergunte ao cliente se ele tem botijão vazio para trocar e informe hasEmptyCylinder");
+  } else if (input.hasEmptyCylinder === false) {
+    const needed = new Map<number, number>();
+    for (const g of gas) {
+      if (!find(g.containerId)) {
+        errors.push(`Vasilhame do ${g.product.description} não disponível`);
+        continue;
+      }
+      needed.set(g.containerId, (needed.get(g.containerId) ?? 0) + g.qty);
+    }
+    for (const [cid, qty] of needed) merged.set(cid, Math.max(merged.get(cid) ?? 0, qty));
+  }
+
+  const paymentTypes = [...new Set(input.payments.map((p) => p.type))];
   const lines: DraftLine[] = [];
   for (const [productId, quantity] of merged) {
-    const product = products.find((p) => p.productId === productId);
+    const product = find(productId);
     if (!product) {
       errors.push(`Produto ${productId} não disponível`);
       continue;
@@ -75,13 +103,19 @@ export function buildDraft(
       errors.push(`Quantidade inválida para ${product.description}: deve ser um número inteiro entre 1 e ${maxQty}`);
       continue;
     }
-    lines.push({
-      productId,
-      description: product.description,
-      quantity,
-      unitCents: product.priceCents,
-      totalCents: product.priceCents * quantity,
-    });
+    if (paymentTypes.length === 0) continue; // reported by fillPayments
+    const unavailable = paymentTypes.filter((t) => product.pricesCents[t] === undefined);
+    if (unavailable.length > 0) {
+      errors.push(`${product.description} não pode ser pago com ${unavailable.map((t) => PAYMENT_LABELS[t]).join(", ")}`);
+      continue;
+    }
+    const prices = new Set(paymentTypes.map((t) => product.pricesCents[t]!));
+    if (prices.size > 1) {
+      errors.push(`O preço de ${product.description} muda conforme a forma de pagamento; use uma só forma de pagamento`);
+      continue;
+    }
+    const unitCents = [...prices][0]!;
+    lines.push({ productId, description: product.description, quantity, unitCents, totalCents: unitCents * quantity });
   }
 
   const address: DraftAddress = {
@@ -102,11 +136,14 @@ export function buildDraft(
   if (errors.length > 0) return { ok: false, errors };
 
   const observation = clean(input.observation);
+  const customerName = clean(input.customerName);
   const data: DraftData = {
     items: lines.map((l) => ({ productId: l.productId, quantity: l.quantity })),
     address,
     payments,
     ...(observation ? { observation } : {}),
+    ...(customerName ? { customerName } : {}),
+    ...(input.hasEmptyCylinder !== undefined ? { hasEmptyCylinder: input.hasEmptyCylinder } : {}),
     lines,
     totalCents,
     customerId,

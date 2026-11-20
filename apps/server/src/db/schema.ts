@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   bigserial,
+  boolean,
   index,
   integer,
   jsonb,
@@ -21,6 +22,27 @@ export const conversations = pgTable("conversations", {
   mode: text("mode", { enum: ["bot", "human"] }).notNull().default("bot"),
   handoffReason: text("handoff_reason"),
   revgasCustomerId: bigint("revgas_customer_id", { mode: "number" }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/**
+ * C1: the token cannot read RevGás customers (403), so we remember who bought from which phone.
+ * Written only after a sale is created; address columns stay null until then.
+ */
+export const customerProfiles = pgTable("customer_profiles", {
+  phone: text("phone").primaryKey(),
+  name: text("name"),
+  location: text("location"),
+  number: text("number"),
+  neighborhood: text("neighborhood"),
+  city: text("city"),
+  state: text("state"),
+  complement: text("complement"),
+  landmark: text("landmark"),
+  hasEmptyCylinder: boolean("has_empty_cylinder"),
+  revgasCustomerId: bigint("revgas_customer_id", { mode: "number" }),
+  lastSaleId: bigint("last_sale_id", { mode: "number" }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

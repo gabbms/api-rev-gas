@@ -3,7 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { Catalog } from "../../src/catalog/catalog.js";
 import { loadConfig } from "../../src/config.js";
 import type { Db } from "../../src/db/client.js";
-import { conversations, messages, orderDrafts } from "../../src/db/schema.js";
+import { conversations, customerProfiles, messages, orderDrafts } from "../../src/db/schema.js";
 import type { DraftInput } from "../../src/orders/draft.js";
 import { OrderService } from "../../src/orders/orderService.js";
 import { FakeRevgasClient } from "../../src/revgas/fakeClient.js";
@@ -22,6 +22,8 @@ const input = (quantity = 1): DraftInput => ({
   items: [{ productId: 23740, quantity }],
   address: { location: "Rua das Flores", number: "120", neighborhood: "Centro", city: "Teresina", state: "PI" },
   payments: [{ type: "PIX" }],
+  hasEmptyCylinder: true,
+  customerName: "Maria",
 });
 
 const t0 = new Date("2026-11-20T12:00:00.000Z");
@@ -55,7 +57,8 @@ beforeEach(async () => {
   await resetTables(db);
   fake = new FakeRevgasClient();
   fake.products.push({ id: 23740, description: "GLP 13KG", inactive: false, establishment_id: 2580 });
-  orders = new OrderService(db, new Catalog(fake, 2580, { "23740": 110 }), fake, cfg);
+  fake.deals.push({ id: 1, product_id: 23740, payment_type: "PIX", suggested_value: 110, minimum_value: null, type: "PAYMENT_TYPE", is_default: false });
+  orders = new OrderService(db, new Catalog(fake, 2580), fake, cfg);
   const [conv] = await db.insert(conversations).values({ phone: "86999998888" }).returning();
   conversationId = conv!.id;
 });
@@ -163,5 +166,53 @@ describe("OrderService", () => {
     const created = await orders.confirm(conversationId);
     const sale = await orders.getLatestSale(conversationId);
     expect(sale).toMatchObject({ id: created.kind === "created" ? created.saleId : -1, status: "OPEN" });
+  });
+});
+
+describe("OrderService — C1: local customer profile", () => {
+  const profiles = () => db.select().from(customerProfiles);
+
+  it("saves name, address, cylinder answer and sale id after a created sale", async () => {
+    await readyDraft();
+    const result = await orders.confirm(conversationId);
+    expect(result.kind).toBe("created");
+    expect(await profiles()).toEqual([
+      expect.objectContaining({
+        phone: "86999998888",
+        name: "Maria",
+        location: "Rua das Flores",
+        number: "120",
+        neighborhood: "Centro",
+        city: "Teresina",
+        state: "PI",
+        complement: null,
+        landmark: null,
+        hasEmptyCylinder: true,
+        lastSaleId: fake.sales[0]!.id,
+      }),
+    ]);
+  });
+
+  it("updates the existing profile on the next sale, keeping the name when none is given", async () => {
+    await db.insert(customerProfiles).values({ phone: "86999998888", name: "Maria", location: "Rua Velha", number: "1" });
+    const r = await orders.upsertDraft(
+      conversationId,
+      { ...input(), customerName: undefined, address: { location: "Rua Nova", number: "2", neighborhood: "Fátima", city: "Teresina", state: "PI" } },
+      null,
+    );
+    await orders.markPresented(r.draftId!, t0);
+    await customerSays("sim", later(1000));
+    await orders.confirm(conversationId);
+    expect(await profiles()).toEqual([expect.objectContaining({ name: "Maria", location: "Rua Nova", number: "2", neighborhood: "Fátima" })]);
+  });
+
+  it.each([
+    ["rejected", new RevgasError("invalid", "Endereço inválido", 422)],
+    ["uncertain", new RevgasError("network")],
+  ])("does not touch the profile when the sale is %s", async (_kind, error) => {
+    await readyDraft();
+    fake.failNextCreateWith = error;
+    await orders.confirm(conversationId);
+    expect(await profiles()).toHaveLength(0);
   });
 });

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { conversations, orderDrafts } from "../../src/db/schema.js";
+import { conversations, customerProfiles, orderDrafts } from "../../src/db/schema.js";
 import type { Db } from "../../src/db/client.js";
 import { resetTables, setupTestDb } from "../helpers/testDb.js";
 
@@ -31,6 +31,13 @@ describe("database schema", () => {
     await expect(
       db.insert(orderDrafts).values({ conversationId: conv!.id, status: "open", payload, totalCents: 100 }),
     ).rejects.toMatchObject({ cause: { code: "23505" } });
+  });
+
+  it("C1: stores one customer profile per normalized phone", async () => {
+    await db.insert(customerProfiles).values({ phone: "86999998888", name: "Maria" });
+    const [row] = await db.select().from(customerProfiles);
+    expect(row).toMatchObject({ phone: "86999998888", name: "Maria", location: null, hasEmptyCylinder: null, lastSaleId: null });
+    await expect(db.insert(customerProfiles).values({ phone: "86999998888" })).rejects.toMatchObject({ cause: { code: "23505" } });
   });
 
   it("allows a new open draft once the previous one is no longer open or sending", async () => {

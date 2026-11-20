@@ -175,6 +175,56 @@ describe("HttpRevgasClient", () => {
   });
 });
 
+describe("corrections from the API survey", () => {
+  it("C6: maps 403 to auth with 'Token sem acesso a <rota>'", async () => {
+    const f = fakeFetch(json(403, { message: "User doesn't have access to this resource" }));
+    const err = await errorOf(client(f.fn).findCustomersByPhone("86999998888"));
+    expect(err).toMatchObject({ kind: "auth", status: 403, message: "Token sem acesso a /customers" });
+  });
+
+  it("C5: accepts WARN as WARNING and tolerates unknown statuses", async () => {
+    const f = fakeFetch(json(200, { id: 1, status: "WARN", total: 150 }), json(200, { id: 2, status: "RECEIVED", total: 150 }));
+    const c = client(f.fn);
+    expect((await c.getSale(1)).status).toBe("WARNING");
+    expect((await c.getSale(2)).status).toBe("RECEIVED");
+  });
+
+  it("reads product container ids", async () => {
+    const f = fakeFetch(
+      json(200, {
+        data: [
+          { id: 23740, description: "GLP 13KG", inactive: false, establishment_id: 2580, container_id: 23741 },
+          { id: 23741, description: "VASILHAME 13KG", inactive: false, establishment_id: 2580 },
+        ],
+        pagination: { has_next: false },
+      }),
+    );
+    const products = await client(f.fn).listProducts(2580);
+    expect(products.map((p) => p.container_id)).toEqual([23741, null]);
+  });
+
+  it("C2: lists PAYMENT_TYPE deals of the establishment across pages, accepting numeric and string values", async () => {
+    const deal = (over: Record<string, unknown>) => ({
+      id: 1, product_id: 23740, payment_type: "PIX", suggested_value: 150, minimum_value: 80,
+      type: "PAYMENT_TYPE", is_default: false, ...over,
+    });
+    const f = fakeFetch(
+      json(200, { data: [deal({ id: 1 }), deal({ id: 2, payment_type: "MONEY", suggested_value: "149.90" })], pagination: { has_next: true } }),
+      json(200, { data: [deal({ id: 3, type: "TAG", tag_id: 9 })], pagination: { has_next: false } }),
+    );
+    const deals = await client(f.fn).listDeals(2580);
+    expect(f.calls[0]!.url).toBe(
+      "https://api.revgas.com/v1/deals?establishment_id=2580&customer_isnull=true&tag_isnull=true&page=1&page_size=100",
+    );
+    expect(f.calls[1]!.url).toContain("page=2");
+    expect(deals.map((d) => [d.id, d.payment_type, d.suggested_value, d.type])).toEqual([
+      [1, "PIX", 150, "PAYMENT_TYPE"],
+      [2, "MONEY", 149.9, "PAYMENT_TYPE"],
+      [3, "PIX", 150, "TAG"],
+    ]);
+  });
+});
+
 describe("createRevgasClient", () => {
   it("does not call the API for createSale when writes are disabled", async () => {
     const f = fakeFetch();

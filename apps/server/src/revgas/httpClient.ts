@@ -6,10 +6,12 @@ import { RateLimiter } from "./rateLimiter.js";
 import {
   RevgasError,
   customerSchema,
+  dealPageSchema,
   productPageSchema,
   saleSchema,
   type RevgasClient,
   type RevgasCustomer,
+  type RevgasDeal,
   type RevgasErrorKind,
   type RevgasProduct,
   type RevgasSale,
@@ -48,6 +50,19 @@ export class HttpRevgasClient implements RevgasClient {
         `/products?establishment_id=${establishmentId}&page=${page}&page_size=100`,
       );
       const parsed = this.parse(productPageSchema, body);
+      all.push(...parsed.data);
+      if (!parsed.pagination?.has_next) return all;
+    }
+  }
+
+  async listDeals(establishmentId: number): Promise<RevgasDeal[]> {
+    const all: RevgasDeal[] = [];
+    for (let page = 1; ; page++) {
+      const body = await this.request(
+        "GET",
+        `/deals?establishment_id=${establishmentId}&customer_isnull=true&tag_isnull=true&page=${page}&page_size=100`,
+      );
+      const parsed = this.parse(dealPageSchema, body);
       all.push(...parsed.data);
       if (!parsed.pagination?.has_next) return all;
     }
@@ -124,6 +139,10 @@ export class HttpRevgasClient implements RevgasClient {
         ? (json as { message: string }).message
         : `HTTP ${res.status}`,
     );
+    if (res.status === 403) {
+      // C6: name the route (without query) so logs say exactly what the token can't reach.
+      throw new RevgasError("auth", `Token sem acesso a ${path.split("?")[0]}`, 403);
+    }
     throw new RevgasError(classify(res.status, apiMessage, json), apiMessage, res.status);
   }
 
@@ -161,6 +180,7 @@ export function createRevgasClient(cfg: AppConfig, fetchFn: typeof fetch = fetch
   return {
     findCustomersByPhone: (phone) => http.findCustomersByPhone(phone),
     listProducts: (id) => http.listProducts(id),
+    listDeals: (id) => http.listDeals(id),
     createSale: async (payload) => {
       console.info("[revgas] escrita desligada: venda simulada");
       return fake.createSale(payload);

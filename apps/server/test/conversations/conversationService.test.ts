@@ -56,7 +56,7 @@ beforeEach(async () => {
   sent = [];
   log = [];
   const fake = new FakeRevgasClient();
-  const catalog = new Catalog(fake, 2580, {});
+  const catalog = new Catalog(fake, 2580);
   deps = {
     anthropic: {} as Pick<Anthropic, "beta">,
     orders: new OrderService(db, catalog, fake, cfg),

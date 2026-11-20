@@ -6,9 +6,11 @@ import { runTool, toolDefinitions } from "../../src/agent/tools.js";
 import { Catalog } from "../../src/catalog/catalog.js";
 import { loadConfig } from "../../src/config.js";
 import type { Db } from "../../src/db/client.js";
-import { conversations, llmTurns, orderDrafts } from "../../src/db/schema.js";
+import { conversations, customerProfiles, llmTurns, orderDrafts } from "../../src/db/schema.js";
 import { OrderService } from "../../src/orders/orderService.js";
 import { FakeRevgasClient } from "../../src/revgas/fakeClient.js";
+import { HttpRevgasClient } from "../../src/revgas/httpClient.js";
+import { RateLimiter } from "../../src/revgas/rateLimiter.js";
 import { RevgasError } from "../../src/revgas/types.js";
 import { resetTables, setupTestDb } from "../helpers/testDb.js";
 
@@ -53,10 +55,14 @@ function scriptedAnthropic(...responses: Anthropic.Beta.BetaMessage[]) {
   return { beta: { messages: { create } } } as unknown as Pick<Anthropic, "beta">;
 }
 
-function deps(anthropic: Pick<Anthropic, "beta">): AgentDeps {
-  const catalog = new Catalog(fake, 2580, { "23740": 110 });
-  return { anthropic, orders: new OrderService(db, catalog, fake, cfg), catalog, revgas: fake, db, cfg };
+function deps(anthropic: Pick<Anthropic, "beta">, over: Partial<AgentDeps> = {}): AgentDeps {
+  const revgas = over.revgas ?? fake;
+  const c = over.cfg ?? cfg;
+  const catalog = new Catalog(revgas, 2580);
+  return { anthropic, orders: new OrderService(db, catalog, revgas, c), catalog, revgas, db, cfg: c, ...over };
 }
+
+const customersOn = loadConfig({ DATABASE_URL: "postgres://x", REVGAS_API_KEY: "k", ANTHROPIC_API_KEY: "a", REVGAS_CUSTOMERS_ENABLED: "true" });
 
 const ctx = (): ToolContext => ({ conversationId, phone: "86999998888", customerId: null, events: {} });
 
@@ -64,7 +70,19 @@ const orderInput = {
   items: [{ productId: 23740, quantity: 1 }],
   address: { location: "Rua das Flores", number: "120", neighborhood: "Centro", city: "Teresina", state: "PI" },
   payments: [{ type: "PIX" }],
+  hasEmptyCylinder: true,
+  customerName: "Maria",
 };
+
+const pixDeal = (product_id: number, value: number, payment_type = "PIX") => ({
+  id: product_id * 10 + payment_type.length,
+  product_id,
+  payment_type,
+  suggested_value: value,
+  minimum_value: null,
+  type: "PAYMENT_TYPE",
+  is_default: false,
+});
 
 async function turns() {
   return db.select().from(llmTurns).where(eq(llmTurns.conversationId, conversationId)).orderBy(asc(llmTurns.id));
@@ -79,7 +97,11 @@ afterAll(async () => {
 beforeEach(async () => {
   await resetTables(db);
   fake = new FakeRevgasClient();
-  fake.products.push({ id: 23740, description: "GLP 13KG", inactive: false, establishment_id: 2580 });
+  fake.products.push(
+    { id: 23740, description: "GLP 13KG", inactive: false, establishment_id: 2580, container_id: 23741 },
+    { id: 23741, description: "VASILHAME 13KG", inactive: false, establishment_id: 2580 },
+  );
+  fake.deals.push(pixDeal(23740, 110), pixDeal(23740, 110, "MONEY"), pixDeal(23740, 115, "CARTAO_DE_CREDITO"), pixDeal(23741, 10));
   fake.customers.push({
     id: 501, name: "Maria", phone: "86999998888", location: "Rua das Flores", number: "120",
     neighborhood: "Centro", city: "Teresina", state_federation: "PI", complement: null, landmark: null,
@@ -104,9 +126,8 @@ describe("runAgentTurn", () => {
     expect(result.replyText).toBe("Prontinho, Maria! Segue o resumo.");
     expect(result.events.draftPresentable?.summaryText).toContain("• 1x GLP 13KG — R$ 110,00");
     expect(result.events.draftPresentable?.draftId).toMatch(/[0-9a-f-]{36}/);
-    expect(c.customerId).toBe(501);
-    const [conv] = await db.select().from(conversations).where(eq(conversations.id, conversationId));
-    expect(conv?.revgasCustomerId).toBe(501);
+    // C1: with REVGAS_CUSTOMERS_ENABLED off the RevGás customer is never looked up.
+    expect(c.customerId).toBeNull();
 
     const rows = await turns();
     expect(rows.map((r) => r.role)).toEqual(["user", "assistant", "user", "assistant", "user", "assistant", "user", "assistant"]);
@@ -198,27 +219,94 @@ describe("tools", () => {
     }
   });
 
-  it("buscar_cliente treats a permission error as an unidentified customer", async () => {
-    vi.spyOn(fake, "findCustomersByPhone").mockRejectedValue(new RevgasError("auth", "no", 403));
-    const c = ctx();
-    const r = await runTool("buscar_cliente", {}, c, deps(scriptedAnthropic()));
-    expect(r.isError).toBe(false);
-    expect(r.content).toMatch(/não identificado/i);
-    expect(c.customerId).toBeNull();
+  describe("buscar_cliente (C1)", () => {
+    it("treats a phone without profile as a new customer", async () => {
+      const r = await runTool("buscar_cliente", {}, ctx(), deps(scriptedAnthropic()));
+      expect(r.isError).toBe(false);
+      expect(JSON.parse(r.content)).toMatchObject({ cliente: "novo" });
+      expect(r.content).toMatch(/nome e o endereço/);
+    });
+
+    it("offers the saved address of a known customer", async () => {
+      await db.insert(customerProfiles).values({
+        phone: "86999998888", name: "Maria", location: "Rua X", number: "120", neighborhood: "Centro",
+        city: "Teresina", state: "PI", hasEmptyCylinder: true, lastSaleId: 900000001,
+      });
+      const body = JSON.parse((await runTool("buscar_cliente", {}, ctx(), deps(scriptedAnthropic()))).content);
+      expect(body).toMatchObject({
+        cliente: "conhecido",
+        nome: "Maria",
+        enderecoTexto: "Rua X, 120 – Centro, Teresina/PI",
+        endereco: { location: "Rua X", number: "120", neighborhood: "Centro", city: "Teresina", state: "PI" },
+        trocouBotijaoNaUltimaCompra: true,
+      });
+      expect(body.instrucao).toContain("Entregar no mesmo endereço de antes (Rua X, 120 – Centro)?");
+    });
+
+    it("never calls RevGás /customers when REVGAS_CUSTOMERS_ENABLED is false", async () => {
+      const fetchFn = vi.fn(async (_url: string | URL | Request) => new Response("{}", { status: 200 }));
+      const http = new HttpRevgasClient(cfg, new RateLimiter(0), fetchFn as unknown as typeof fetch, 0);
+      await runTool("buscar_cliente", {}, ctx(), deps(scriptedAnthropic(), { revgas: http }));
+      expect(fetchFn.mock.calls.filter(([url]) => String(url).includes("/customers"))).toHaveLength(0);
+    });
+
+    it("with the flag on, a 403 is an unidentified customer and never breaks the conversation", async () => {
+      const fetchFn = vi.fn(async () => new Response(JSON.stringify({ message: "User doesn't have access to this resource" }), { status: 403 }));
+      const http = new HttpRevgasClient(customersOn, new RateLimiter(0), fetchFn as unknown as typeof fetch, 0);
+      const c = ctx();
+      const r = await runTool("buscar_cliente", {}, c, deps(scriptedAnthropic(), { revgas: http, cfg: customersOn }));
+      expect(r.isError).toBe(false);
+      expect(JSON.parse(r.content)).toMatchObject({ cliente: "novo" });
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+      expect(c.customerId).toBeNull();
+    });
+
+    it("with the flag on, one RevGás match fills revgasCustomerId", async () => {
+      const c = ctx();
+      await runTool("buscar_cliente", {}, c, deps(scriptedAnthropic(), { cfg: customersOn }));
+      expect(c.customerId).toBe(501);
+      const [conv] = await db.select().from(conversations).where(eq(conversations.id, conversationId));
+      expect(conv?.revgasCustomerId).toBe(501);
+      const [profile] = await db.select().from(customerProfiles);
+      expect(profile?.revgasCustomerId).toBe(501);
+    });
+
+    it("with the flag on, several RevGás matches are listed but none is chosen", async () => {
+      fake.customers.push({ ...fake.customers[0]!, id: 502, name: "João" });
+      const c = ctx();
+      const r = await runTool("buscar_cliente", {}, c, deps(scriptedAnthropic(), { cfg: customersOn }));
+      expect(r.content).toContain("Maria");
+      expect(r.content).toContain("João");
+      expect(c.customerId).toBeNull();
+    });
   });
 
-  it("buscar_cliente asks which customer when the phone matches several", async () => {
-    fake.customers.push({ ...fake.customers[0]!, id: 502, name: "João" });
-    const c = ctx();
-    const r = await runTool("buscar_cliente", {}, c, deps(scriptedAnthropic()));
-    expect(r.content).toContain("Maria");
-    expect(r.content).toContain("João");
-    expect(c.customerId).toBeNull();
-  });
-
-  it("listar_produtos formats prices in reais", async () => {
+  it("listar_produtos (C2) shows the reference price, prices per payment and the cylinder", async () => {
     const r = await runTool("listar_produtos", {}, ctx(), deps(scriptedAnthropic()));
-    expect(JSON.parse(r.content)).toEqual([{ productId: 23740, description: "GLP 13KG", preco: "R$ 110,00" }]);
+    const body = JSON.parse(r.content);
+    expect(body.aviso).toMatch(/pode variar conforme a forma de pagamento/);
+    expect(body.produtos).toEqual([
+      {
+        productId: 23740,
+        description: "GLP 13KG",
+        precoReferencia: "R$ 110,00",
+        precosPorPagamento: { Pix: "R$ 110,00", Dinheiro: "R$ 110,00", "Cartão de crédito": "R$ 115,00" },
+        vasilhame: { productId: 23741, description: "VASILHAME 13KG", precoReferencia: "R$ 10,00" },
+      },
+      { productId: 23741, description: "VASILHAME 13KG", precoReferencia: "R$ 10,00", precosPorPagamento: { Pix: "R$ 10,00" } },
+    ]);
+  });
+
+  it("montar_pedido (C3) asks about the empty cylinder before building a gas order", async () => {
+    const r = await runTool("montar_pedido", { ...orderInput, hasEmptyCylinder: undefined }, ctx(), deps(scriptedAnthropic()));
+    expect(r.isError).toBe(true);
+    expect(r.content).toMatch(/botijão vazio/);
+  });
+
+  it("montar_pedido (C3) adds the cylinder when the customer has none to swap", async () => {
+    const c = ctx();
+    await runTool("montar_pedido", { ...orderInput, hasEmptyCylinder: false }, c, deps(scriptedAnthropic()));
+    expect(c.events.draftPresentable?.summaryText).toContain("• 1x GLP 13KG — R$ 110,00\n• 1x VASILHAME 13KG — R$ 10,00\nTotal: R$ 120,00");
   });
 
   it("confirmar_pedido hands off on an uncertain result", async () => {
@@ -244,11 +332,19 @@ describe("tools", () => {
     expect(c.events.handoff).toEqual({ reason: "RevGás recusou a venda: Endereço inválido" });
   });
 
-  it("consultar_pedido translates the sale status", async () => {
+  it.each([
+    ["OPEN", "Pedido recebido"],
+    ["ACTIVE", "Pedido em preparação"],
+    ["WARNING", "Saiu para entrega"],
+    ["CONFIRM", "Entregue"],
+    ["CHECK", "Entregue"],
+    ["CANCEL", "Cancelado"],
+    ["RECEIVED", "Em andamento"],
+  ])("consultar_pedido (C5) translates %s as '%s'", async (status, label) => {
     const d = deps(scriptedAnthropic());
-    vi.spyOn(d.orders, "getLatestSale").mockResolvedValue({ id: 9, status: "ACTIVE", total: 110 });
+    vi.spyOn(d.orders, "getLatestSale").mockResolvedValue({ id: 9, status, total: 110 });
     const r = await runTool("consultar_pedido", {}, ctx(), d);
-    expect(r.content).toContain("Em andamento");
+    expect(r.content).toBe(`Pedido nº 9: ${label}. Total R$ 110,00.`);
   });
 
   it("chamar_atendente records the handoff reason", async () => {

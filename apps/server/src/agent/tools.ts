@@ -1,13 +1,14 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import type { Catalog } from "../catalog/catalog.js";
+import { referencePriceCents, type Catalog, type PriceTable } from "../catalog/catalog.js";
 import type { AppConfig } from "../config.js";
+import { getProfile, hasAddress, setRevgasCustomerId } from "../customers/customerProfiles.js";
 import type { Db } from "../db/client.js";
 import { conversations } from "../db/schema.js";
-import { formatCents } from "../orders/draft.js";
+import { PAYMENT_LABELS, formatCents } from "../orders/draft.js";
 import type { OrderService } from "../orders/orderService.js";
-import { PAYMENT_TYPES, RevgasError, type RevgasClient } from "../revgas/types.js";
+import { PAYMENT_TYPES, RevgasError, type PaymentType, type RevgasClient } from "../revgas/types.js";
 
 export type ToolContext = {
   conversationId: string;
@@ -49,13 +50,14 @@ export const toolDefinitions: Anthropic.Beta.BetaTool[] = [
   {
     name: "buscar_cliente",
     description:
-      "Busca o cadastro do cliente pelo telefone desta conversa (o sistema já sabe o número). Retorna nome e endereço cadastrado, se houver.",
+      "Busca o cliente pelo telefone desta conversa (o sistema já sabe o número). Diz se é cliente novo ou conhecido e, se conhecido, o nome e o endereço da última entrega.",
     input_schema: noInput,
     strict: true,
   },
   {
     name: "listar_produtos",
-    description: "Lista os produtos disponíveis para venda, com id e preço oficial. Use antes de oferecer qualquer produto.",
+    description:
+      "Lista os produtos à venda com o preço oficial. O preço pode mudar conforme a forma de pagamento; mostra o preço de referência e o preço de cada forma aceita. Use antes de oferecer qualquer produto.",
     input_schema: noInput,
     strict: true,
   },
@@ -68,7 +70,7 @@ export const toolDefinitions: Anthropic.Beta.BetaTool[] = [
       properties: {
         items: {
           type: "array",
-          description: "Itens do pedido",
+          description: "Itens do pedido. Não inclua o vasilhame: o sistema adiciona quando hasEmptyCylinder for false.",
           items: {
             type: "object",
             properties: {
@@ -94,6 +96,12 @@ export const toolDefinitions: Anthropic.Beta.BetaTool[] = [
             additionalProperties: false,
           },
         },
+        hasEmptyCylinder: {
+          type: "boolean",
+          description:
+            "Para gás: true se o cliente tem botijão vazio para trocar; false se não tem (o vasilhame é vendido junto). Pergunte antes de montar.",
+        },
+        customerName: { type: "string", description: "Nome do cliente, se ele informou" },
         observation: { type: "string", description: "Observação para a entrega, ex.: troco para R$ 200" },
       },
       required: ["items", "address", "payments"],
@@ -144,18 +152,21 @@ const montarPedidoInput = z
       })
       .strict(),
     payments: z.array(z.object({ type: z.enum(PAYMENT_TYPES), amountCents: z.number().int().optional() }).strict()),
+    hasEmptyCylinder: z.boolean().optional(),
+    customerName: z.string().optional(),
     observation: z.string().optional(),
   })
   .strict();
 
 const chamarAtendenteInput = z.object({ motivo: z.string().min(1) }).strict();
 
+// C5: wording from the API survey (docs/revgas-api.md §3.2).
 const STATUS_LABELS: Record<string, string> = {
-  OPEN: "Aberto",
-  ACTIVE: "Em andamento",
-  WARNING: "Avisado",
-  CONFIRM: "Confirmado/entregue",
-  CHECK: "Conferido",
+  OPEN: "Pedido recebido",
+  ACTIVE: "Pedido em preparação",
+  WARNING: "Saiu para entrega",
+  CONFIRM: "Entregue",
+  CHECK: "Entregue",
   CANCEL: "Cancelado",
 };
 
@@ -165,6 +176,14 @@ const fail = (content: string): ToolResult => ({ content, isError: true });
 function invalid(error: z.ZodError): ToolResult {
   const issues = error.issues.map((i) => `${i.path.join(".") || "entrada"}: ${i.message}`);
   return fail(`Entrada inválida: ${issues.join("; ")}`);
+}
+
+const reais = (value: number) => `R$ ${value.toFixed(2).replace(".", ",")}`;
+
+function pricesByPayment(prices: PriceTable): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const t of PAYMENT_TYPES) if (prices[t] !== undefined) out[PAYMENT_LABELS[t as PaymentType]] = formatCents(prices[t]!);
+  return out;
 }
 
 export async function runTool(name: string, input: unknown, ctx: ToolContext, deps: AgentDeps): Promise<ToolResult> {
@@ -177,10 +196,7 @@ export async function runTool(name: string, input: unknown, ctx: ToolContext, de
     case "listar_produtos": {
       const parsed = emptyInput.safeParse(input);
       if (!parsed.success) return invalid(parsed.error);
-      const products = await deps.catalog.list();
-      return ok(
-        JSON.stringify(products.map((p) => ({ productId: p.productId, description: p.description, preco: formatCents(p.priceCents) }))),
-      );
+      return listarProdutos(deps);
     }
     case "montar_pedido": {
       const parsed = montarPedidoInput.safeParse(input);
@@ -223,7 +239,7 @@ export async function runTool(name: string, input: unknown, ctx: ToolContext, de
       try {
         const sale = await deps.orders.getLatestSale(ctx.conversationId);
         if (!sale) return ok("Nenhum pedido registrado nesta conversa.");
-        return ok(`Pedido nº ${sale.id}: ${STATUS_LABELS[sale.status] ?? sale.status}. Total R$ ${sale.total.toFixed(2).replace(".", ",")}.`);
+        return ok(`Pedido nº ${sale.id}: ${STATUS_LABELS[sale.status] ?? "Em andamento"}. Total ${reais(sale.total)}.`);
       } catch (e) {
         if (e instanceof RevgasError) return fail(`Não foi possível consultar o pedido agora (${e.kind}).`);
         throw e;
@@ -239,38 +255,87 @@ export async function runTool(name: string, input: unknown, ctx: ToolContext, de
   return fail(`Ferramenta desconhecida: ${name}`);
 }
 
-async function buscarCliente(ctx: ToolContext, deps: AgentDeps): Promise<ToolResult> {
-  let found;
-  try {
-    found = await deps.revgas.findCustomersByPhone(ctx.phone);
-  } catch (e) {
-    if (e instanceof RevgasError) {
-      return ok("Cliente não identificado (cadastro indisponível agora). Peça o endereço completo de entrega.");
-    }
-    throw e;
-  }
-  if (found.length === 0) return ok("Cliente não identificado: telefone sem cadastro. Peça o endereço completo de entrega.");
-  if (found.length > 1) {
-    return ok(
-      `Há ${found.length} cadastros com este telefone: ${found.map((c) => c.name).join(", ")}. ` +
-        "Pergunte o nome do cliente; se continuar ambíguo, trate como não identificado e peça o endereço.",
-    );
-  }
-  const c = found[0]!;
-  ctx.customerId = c.id;
-  await deps.db.update(conversations).set({ revgasCustomerId: c.id, updatedAt: new Date() }).where(eq(conversations.id, ctx.conversationId));
+async function listarProdutos(deps: AgentDeps): Promise<ToolResult> {
+  const products = await deps.catalog.list();
+  const byId = new Map(products.map((p) => [p.productId, p]));
+  const ref = (prices: PriceTable) => {
+    const cents = referencePriceCents(prices);
+    return cents === null ? null : formatCents(cents);
+  };
   return ok(
     JSON.stringify({
-      nome: c.name,
-      endereco: {
-        location: c.location,
-        number: c.number,
-        neighborhood: c.neighborhood,
-        city: c.city,
-        state: c.state_federation,
-        complement: c.complement,
-        landmark: c.landmark,
-      },
+      aviso: "O preço pode variar conforme a forma de pagamento. O preço de referência é no Pix (ou dinheiro).",
+      produtos: products.map((p) => {
+        const container = p.containerId ? byId.get(p.containerId) : undefined;
+        return {
+          productId: p.productId,
+          description: p.description,
+          precoReferencia: ref(p.pricesCents),
+          precosPorPagamento: pricesByPayment(p.pricesCents),
+          ...(container
+            ? { vasilhame: { productId: container.productId, description: container.description, precoReferencia: ref(container.pricesCents) } }
+            : {}),
+        };
+      }),
+    }),
+  );
+}
+
+/** C1: local profile first; RevGás /customers only when enabled, and never fatal. */
+async function buscarCliente(ctx: ToolContext, deps: AgentDeps): Promise<ToolResult> {
+  const profile = await getProfile(deps.db, ctx.phone);
+  let revgasNote: string | undefined;
+
+  if (deps.cfg.revgasCustomersEnabled) {
+    try {
+      const found = await deps.revgas.findCustomersByPhone(ctx.phone);
+      if (found.length === 1) {
+        const c = found[0]!;
+        ctx.customerId = c.id;
+        await deps.db
+          .update(conversations)
+          .set({ revgasCustomerId: c.id, updatedAt: new Date() })
+          .where(eq(conversations.id, ctx.conversationId));
+        await setRevgasCustomerId(deps.db, ctx.phone, c.id);
+      } else if (found.length > 1) {
+        revgasNote =
+          `Há ${found.length} cadastros na RevGás com este telefone: ${found.map((c) => c.name).join(", ")}. ` +
+          "Pergunte o nome do cliente; se continuar ambíguo, siga sem cadastro.";
+      }
+    } catch (e) {
+      if (!(e instanceof RevgasError)) throw e;
+      // 403 (or any RevGás error): treated as "not identified".
+    }
+  }
+
+  if (hasAddress(profile)) {
+    const street = `${profile.location}, ${profile.number} – ${profile.neighborhood}`;
+    return ok(
+      JSON.stringify({
+        cliente: "conhecido",
+        nome: profile.name,
+        endereco: {
+          location: profile.location,
+          number: profile.number,
+          neighborhood: profile.neighborhood,
+          city: profile.city,
+          state: profile.state,
+          ...(profile.complement ? { complement: profile.complement } : {}),
+          ...(profile.landmark ? { landmark: profile.landmark } : {}),
+        },
+        enderecoTexto: `${street}, ${profile.city}/${profile.state}`,
+        trocouBotijaoNaUltimaCompra: profile.hasEmptyCylinder,
+        instrucao: `Cumprimente pelo nome e pergunte: "Entregar no mesmo endereço de antes (${street})?"`,
+        ...(revgasNote ? { observacao: revgasNote } : {}),
+      }),
+    );
+  }
+  return ok(
+    JSON.stringify({
+      cliente: "novo",
+      ...(profile?.name ? { nome: profile.name } : {}),
+      instrucao: "Cliente sem endereço salvo: pergunte o nome e o endereço completo de entrega.",
+      ...(revgasNote ? { observacao: revgasNote } : {}),
     }),
   );
 }

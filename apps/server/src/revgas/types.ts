@@ -26,15 +26,37 @@ export const productSchema = z.object({
   description: z.string(),
   inactive: z.boolean(),
   establishment_id: z.number(),
+  /** Empty cylinder (vasilhame) sold with this gas when the customer has none to swap. */
+  container_id: z.number().nullish().transform((v) => v ?? null),
 });
-export type RevgasProduct = z.infer<typeof productSchema>;
+export type RevgasProduct = z.input<typeof productSchema> & { container_id?: number | null };
 
+// Status: the list filter spells it WARN, responses WARNING; unknown values (e.g. RECEIVED) pass through.
 export const saleSchema = z.object({
   id: z.number(),
-  status: z.enum(SALE_STATUSES),
+  status: z.string().transform((s) => (s === "WARN" ? "WARNING" : s)),
   total: z.number(),
 });
-export type RevgasSale = z.infer<typeof saleSchema>;
+export type RevgasSale = { id: number; status: (typeof SALE_STATUSES)[number] | (string & {}); total: number };
+
+const decimal = z.union([z.number(), z.string().regex(/^-?\d+(\.\d+)?$/).transform(Number)]);
+
+/** Price agreement (acordo). Real responses send values as numbers; the spec says decimal strings. */
+export const dealSchema = z.object({
+  id: z.number(),
+  product_id: z.number(),
+  payment_type: z.string(),
+  suggested_value: decimal,
+  minimum_value: decimal.nullish(),
+  type: z.string(),
+  is_default: z.boolean().nullish().transform((v) => v ?? false),
+});
+export type RevgasDeal = z.output<typeof dealSchema>;
+
+export const dealPageSchema = z.object({
+  data: z.array(dealSchema),
+  pagination: z.object({ has_next: z.boolean() }).optional(),
+});
 
 export const productPageSchema = z.object({
   data: z.array(productSchema),
@@ -84,6 +106,8 @@ export interface RevgasClient {
   findCustomersByPhone(phone: string): Promise<RevgasCustomer[]>;
   /** Walks every page. */
   listProducts(establishmentId: number): Promise<RevgasProduct[]>;
+  /** Deals without customer or tag (general price per payment type), every page. */
+  listDeals(establishmentId: number): Promise<RevgasDeal[]>;
   createSale(payload: SalePayload): Promise<RevgasSale>;
   getSale(id: number): Promise<RevgasSale>;
 }

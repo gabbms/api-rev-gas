@@ -2,7 +2,8 @@ import { and, desc, eq, gt, isNotNull, sql } from "drizzle-orm";
 import type { Catalog } from "../catalog/catalog.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/client.js";
-import { messages, orderDrafts } from "../db/schema.js";
+import { saveProfileFromSale } from "../customers/customerProfiles.js";
+import { conversations, messages, orderDrafts } from "../db/schema.js";
 import { RevgasError, type RevgasClient, type RevgasSale } from "../revgas/types.js";
 import { buildDraft, toSalePayload, type DraftData, type DraftInput, type DraftResult } from "./draft.js";
 
@@ -127,6 +128,7 @@ export class OrderService {
     try {
       const sale = await this.revgas.createSale(payload);
       await this.finish(draft.id, { status: "created", revgasSaleId: sale.id });
+      await this.rememberCustomer(conversationId, draft.payload as DraftData, sale.id);
       return { kind: "created", saleId: sale.id };
     } catch (e) {
       // Only errors where RevGás clearly did not create the sale are "rejected".
@@ -149,6 +151,19 @@ export class OrderService {
       .limit(1);
     if (!row?.saleId) return null;
     return this.revgas.getSale(row.saleId);
+  }
+
+  /** C1: the sale exists in RevGás, so a profile failure must not change the result. */
+  private async rememberCustomer(conversationId: string, data: DraftData, saleId: number): Promise<void> {
+    try {
+      const [conv] = await this.db
+        .select({ phone: conversations.phone })
+        .from(conversations)
+        .where(eq(conversations.id, conversationId));
+      if (conv) await saveProfileFromSale(this.db, conv.phone, data, saleId);
+    } catch (e) {
+      console.error("[pedidos] venda criada, mas o perfil do cliente não foi salvo:", e instanceof Error ? e.message : e);
+    }
   }
 
   private async finish(

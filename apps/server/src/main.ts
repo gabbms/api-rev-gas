@@ -1,6 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { config as loadDotenv } from "dotenv";
-import { readFileSync } from "node:fs";
 import { Catalog } from "./catalog/catalog.js";
 import { loadConfig } from "./config.js";
 import { ConversationService } from "./conversations/conversationService.js";
@@ -12,10 +11,14 @@ import { createRevgasClient } from "./revgas/httpClient.js";
 loadDotenv({ path: new URL("../../../.env", import.meta.url), quiet: true });
 const cfg = loadConfig(process.env);
 
-const prices = JSON.parse(readFileSync(new URL("../config/prices.json", import.meta.url), "utf8")) as Record<string, number>;
 const { db, close } = createDb(cfg.databaseUrl);
 const revgas = createRevgasClient(cfg);
-const catalog = new Catalog(revgas, cfg.revgasEstablishmentId, prices);
+// C2: prices come from RevGás deals (/deals), cached; warmed up now so the first customer doesn't wait.
+const catalog = new Catalog(revgas, cfg.revgasEstablishmentId);
+void catalog
+  .list()
+  .then((items) => console.info(`[catálogo] ${items.length} produtos com preço (acordos) carregados`))
+  .catch((e: unknown) => console.error("[catálogo] falha ao carregar produtos/acordos:", e instanceof Error ? e.message : e));
 const orders = new OrderService(db, catalog, revgas, cfg);
 const anthropic = new Anthropic({ apiKey: cfg.anthropicApiKey });
 

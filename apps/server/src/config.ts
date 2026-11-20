@@ -14,6 +14,7 @@ const envSchema = z.object({
     .positive({ error: "REVGAS_ESTABLISHMENT_ID deve ser positivo" })
     .default(2580),
   REVGAS_WRITE_ENABLED: z.string().optional(),
+  REVGAS_CUSTOMERS_ENABLED: z.string().optional(),
   REVGAS_BROADCAST: z.enum(["NONE", "NEW_SALE"], { error: "REVGAS_BROADCAST deve ser NONE ou NEW_SALE" }).default("NONE"),
   ANTHROPIC_MODEL: z.string().min(1).default("claude-opus-5-5"),
   ANTHROPIC_EFFORT: z.enum(["low", "medium", "high"], { error: "ANTHROPIC_EFFORT deve ser low, medium ou high" }).default("medium"),
@@ -27,6 +28,8 @@ export type AppConfig = {
   revgasBaseUrl: string;
   revgasEstablishmentId: number;
   revgasWriteEnabled: boolean;
+  /** C1: query RevGás /customers (403 for the current token) after the local profile. */
+  revgasCustomersEnabled: boolean;
   revgasBroadcast: "NONE" | "NEW_SALE";
   anthropicApiKey: string;
   anthropicModel: string;
@@ -54,6 +57,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     revgasBaseUrl: e.REVGAS_BASE_URL.replace(/\/+$/, ""),
     revgasEstablishmentId: e.REVGAS_ESTABLISHMENT_ID,
     revgasWriteEnabled: e.REVGAS_WRITE_ENABLED === "true",
+    revgasCustomersEnabled: e.REVGAS_CUSTOMERS_ENABLED === "true",
     revgasBroadcast: e.REVGAS_BROADCAST,
     anthropicApiKey: e.ANTHROPIC_API_KEY,
     anthropicModel: e.ANTHROPIC_MODEL,

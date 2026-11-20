@@ -2,17 +2,23 @@ import { describe, expect, it } from "vitest";
 import type { SellableProduct } from "../../src/catalog/catalog.js";
 import { buildDraft, formatCents, toSalePayload, type DraftInput } from "../../src/orders/draft.js";
 
+const GAS = 23740;
+const CYLINDER = 23741;
+const WATER = 26255;
+
 const products: SellableProduct[] = [
-  { productId: 23740, description: "GLP 13KG", priceCents: 11000 },
-  { productId: 26255, description: "AGUA 20L", priceCents: 1200 },
+  { productId: GAS, description: "GLP 13KG", containerId: CYLINDER, pricesCents: { PIX: 11000, MONEY: 11000, CARTAO_DE_CREDITO: 11500 } },
+  { productId: CYLINDER, description: "VASILHAME 13KG", containerId: null, pricesCents: { PIX: 1000, MONEY: 1000, CARTAO_DE_CREDITO: 1000 } },
+  { productId: WATER, description: "AGUA 20L", containerId: null, pricesCents: { PIX: 1200, MONEY: 1200 } },
 ];
 
 const address = { location: "Rua das Flores", number: "120", neighborhood: "Centro", city: "Teresina", state: "PI" };
 
 const input = (over: Partial<DraftInput> = {}): DraftInput => ({
-  items: [{ productId: 23740, quantity: 1 }],
+  items: [{ productId: GAS, quantity: 1 }],
   address,
   payments: [{ type: "PIX" }],
+  hasEmptyCylinder: true,
   ...over,
 });
 
@@ -42,11 +48,9 @@ describe("buildDraft", () => {
   });
 
   it("totals 22000 cents for 2x of 11000", () => {
-    const r = ok(buildDraft(input({ items: [{ productId: 23740, quantity: 2 }] }), products, 7, 10));
+    const r = ok(buildDraft(input({ items: [{ productId: GAS, quantity: 2 }] }), products, 7, 10));
     expect(r.data.totalCents).toBe(22000);
-    expect(r.data.lines).toEqual([
-      { productId: 23740, description: "GLP 13KG", quantity: 2, unitCents: 11000, totalCents: 22000 },
-    ]);
+    expect(r.data.lines).toEqual([{ productId: GAS, description: "GLP 13KG", quantity: 2, unitCents: 11000, totalCents: 22000 }]);
     expect(r.data.customerId).toBe(7);
     expect(r.data.payments).toEqual([{ type: "PIX", amountCents: 22000 }]);
   });
@@ -58,77 +62,123 @@ describe("buildDraft", () => {
   });
 
   it.each([0, 11, 1.5, -1])("rejects quantity %d", (quantity) => {
-    expect(errors(buildDraft(input({ items: [{ productId: 23740, quantity }] }), products, null, 10))).toHaveLength(1);
+    expect(errors(buildDraft(input({ items: [{ productId: GAS, quantity }] }), products, null, 10))).toHaveLength(1);
   });
 
   it("rejects an order with no items", () => {
     expect(errors(buildDraft(input({ items: [] }), products, null, 10))).toHaveLength(1);
   });
 
-  it("rejects an address without number", () => {
+  it("C8: still requires the full address (number missing)", () => {
     const errs = errors(buildDraft(input({ address: { ...address, number: "  " } }), products, null, 10));
     expect(errs.join(" ")).toMatch(/número/);
   });
 
   it("accepts MONEY 5000 + PIX 6000 for a total of 11000", () => {
     const r = ok(
-      buildDraft(
-        input({ payments: [{ type: "MONEY", amountCents: 5000 }, { type: "PIX", amountCents: 6000 }] }),
-        products,
-        null,
-        10,
-      ),
+      buildDraft(input({ payments: [{ type: "MONEY", amountCents: 5000 }, { type: "PIX", amountCents: 6000 }] }), products, null, 10),
     );
     expect(r.summaryText).toContain("Pagamento: Dinheiro R$ 50,00 + Pix R$ 60,00");
   });
 
   it("rejects payments that do not add up to the total", () => {
     expect(
-      errors(
-        buildDraft(input({ payments: [{ type: "MONEY", amountCents: 5000 }, { type: "PIX", amountCents: 5000 }] }), products, null, 10),
-      ),
+      errors(buildDraft(input({ payments: [{ type: "MONEY", amountCents: 5000 }, { type: "PIX", amountCents: 5000 }] }), products, null, 10)),
     ).toContain("Pagamentos não somam o total");
   });
 
-  it("rejects an order with no payment", () => {
-    expect(errors(buildDraft(input({ payments: [] }), products, null, 10))).toHaveLength(1);
+  it("rejects an order with no payment, without price errors", () => {
+    expect(errors(buildDraft(input({ payments: [] }), products, null, 10))).toEqual(["Forma de pagamento não informada"]);
   });
 
   it("merges repeated items of the same product into one line", () => {
     const r = ok(
       buildDraft(
-        input({ items: [{ productId: 23740, quantity: 1 }, { productId: 26255, quantity: 1 }, { productId: 23740, quantity: 2 }] }),
+        input({ items: [{ productId: GAS, quantity: 1 }, { productId: WATER, quantity: 1 }, { productId: GAS, quantity: 2 }] }),
         products,
         null,
         10,
       ),
     );
     expect(r.data.lines.map((l) => [l.productId, l.quantity])).toEqual([
-      [23740, 3],
-      [26255, 1],
-    ]);
-    expect(r.data.items).toEqual([
-      { productId: 23740, quantity: 3 },
-      { productId: 26255, quantity: 1 },
+      [GAS, 3],
+      [WATER, 1],
     ]);
   });
 
   it("checks the merged quantity against the maximum", () => {
-    const items = [{ productId: 23740, quantity: 6 }, { productId: 23740, quantity: 5 }];
+    const items = [{ productId: GAS, quantity: 6 }, { productId: GAS, quantity: 5 }];
     expect(errors(buildDraft(input({ items }), products, null, 10))).toHaveLength(1);
   });
 
   it("shows complement, landmark and observation", () => {
     const r = ok(
-      buildDraft(
-        input({ address: { ...address, complement: "Apto 2", landmark: "perto da praça" }, observation: "Troco para 200" }),
-        products,
-        null,
-        10,
-      ),
+      buildDraft(input({ address: { ...address, complement: "Apto 2", landmark: "perto da praça" }, observation: "Troco para 200" }), products, null, 10),
     );
     expect(r.summaryText).toContain("Entrega: Rua das Flores, 120 (Apto 2; ref.: perto da praça) – Centro, Teresina/PI");
     expect(r.summaryText).toContain("\nObs.: Troco para 200\n");
+  });
+
+  it("keeps the customer name and cylinder answer in the draft data", () => {
+    const r = ok(buildDraft(input({ customerName: "  Maria  " }), products, null, 10));
+    expect(r.data).toMatchObject({ customerName: "Maria", hasEmptyCylinder: true });
+  });
+});
+
+describe("buildDraft — C2: price depends on the payment type", () => {
+  it("uses the price of the chosen payment type", () => {
+    const r = ok(buildDraft(input({ payments: [{ type: "CARTAO_DE_CREDITO" }] }), products, null, 10));
+    expect(r.data.lines[0]).toMatchObject({ unitCents: 11500, totalCents: 11500 });
+    expect(r.summaryText).toContain("• 1x GLP 13KG — R$ 115,00");
+  });
+
+  it("rejects a payment type without a deal for the product", () => {
+    expect(errors(buildDraft(input({ payments: [{ type: "VALEGAS" }] }), products, null, 10))).toEqual([
+      "GLP 13KG não pode ser pago com Vale Gás",
+    ]);
+  });
+
+  it("rejects split payments whose types price the product differently", () => {
+    const errs = errors(
+      buildDraft(input({ payments: [{ type: "PIX", amountCents: 5000 }, { type: "CARTAO_DE_CREDITO", amountCents: 6000 }] }), products, null, 10),
+    );
+    expect(errs.join(" ")).toMatch(/GLP 13KG.*muda conforme a forma de pagamento/);
+  });
+});
+
+describe("buildDraft — C3: empty cylinder", () => {
+  it("asks whether the customer has an empty cylinder when it is not known", () => {
+    expect(errors(buildDraft(input({ hasEmptyCylinder: undefined }), products, null, 10)).join(" ")).toMatch(/botijão vazio/);
+  });
+
+  it("does not ask for products without a container", () => {
+    ok(buildDraft(input({ items: [{ productId: WATER, quantity: 1 }], hasEmptyCylinder: undefined }), products, null, 10));
+  });
+
+  it("adds the cylinder line, priced by the same payment type, when there is none to swap", () => {
+    const r = ok(buildDraft(input({ items: [{ productId: GAS, quantity: 2 }], hasEmptyCylinder: false }), products, null, 10));
+    expect(r.data.lines.map((l) => [l.productId, l.quantity, l.unitCents])).toEqual([
+      [GAS, 2, 11000],
+      [CYLINDER, 2, 1000],
+    ]);
+    expect(r.data.totalCents).toBe(24000);
+    expect(r.summaryText).toContain("• 2x GLP 13KG — R$ 220,00\n• 2x VASILHAME 13KG — R$ 20,00\nTotal: R$ 240,00");
+  });
+
+  it("does not double the cylinder when the AI already listed it", () => {
+    const items = [{ productId: GAS, quantity: 1 }, { productId: CYLINDER, quantity: 1 }];
+    const r = ok(buildDraft(input({ items, hasEmptyCylinder: false }), products, null, 10));
+    expect(r.data.lines.map((l) => [l.productId, l.quantity])).toEqual([
+      [GAS, 1],
+      [CYLINDER, 1],
+    ]);
+  });
+
+  it("rejects the order when the cylinder is not sellable", () => {
+    const noCylinder = products.filter((p) => p.productId !== CYLINDER);
+    expect(errors(buildDraft(input({ hasEmptyCylinder: false }), noCylinder, null, 10))).toEqual([
+      "Vasilhame do GLP 13KG não disponível",
+    ]);
   });
 });
 
@@ -143,8 +193,8 @@ describe("formatCents", () => {
 });
 
 describe("toSalePayload", () => {
-  it("converts to reais, sets fixed fields and omits empty optionals", () => {
-    const r = ok(buildDraft(input({ items: [{ productId: 23740, quantity: 2 }] }), products, null, 10));
+  it("C4: sends the UNIT price per product (q=2, value=110, not 220), fixed fields, no empty optionals", () => {
+    const r = ok(buildDraft(input({ items: [{ productId: GAS, quantity: 2 }] }), products, null, 10));
     const p = toSalePayload(r.data, 2580, "NONE");
     expect(p).toEqual({
       location: "Rua das Flores",
@@ -153,7 +203,7 @@ describe("toSalePayload", () => {
       city: "Teresina",
       state_federation: "PI",
       establishment_id: 2580,
-      products: [{ product_id: 23740, quantity: 2, value: 110 }],
+      products: [{ product_id: GAS, quantity: 2, value: 110 }],
       payments: [{ payment_type: "PIX", value: 220 }],
       channel: "WHATSAPP",
       origin: "INTEGRATION",
@@ -164,21 +214,27 @@ describe("toSalePayload", () => {
     expect(p).not.toHaveProperty("deliverer_id");
   });
 
+  it("sends the cylinder as its own product line at its unit price", () => {
+    const r = ok(buildDraft(input({ items: [{ productId: GAS, quantity: 2 }], hasEmptyCylinder: false }), products, null, 10));
+    expect(toSalePayload(r.data, 2580, "NONE").products).toEqual([
+      { product_id: GAS, quantity: 2, value: 110 },
+      { product_id: CYLINDER, quantity: 2, value: 10 },
+    ]);
+  });
+
   it("includes customer_id, complement, landmark and observation when present", () => {
-    const r = ok(
-      buildDraft(
-        input({ address: { ...address, complement: "Apto 2", landmark: "praça" }, observation: "Troco para 200" }),
-        products,
-        42,
-        10,
-      ),
-    );
-    const p = toSalePayload(r.data, 2580, "NEW_SALE");
-    expect(p).toMatchObject({ customer_id: 42, complement: "Apto 2", landmark: "praça", observation: "Troco para 200", broadcast: "NEW_SALE" });
+    const r = ok(buildDraft(input({ address: { ...address, complement: "Apto 2", landmark: "praça" }, observation: "Troco para 200" }), products, 42, 10));
+    expect(toSalePayload(r.data, 2580, "NEW_SALE")).toMatchObject({
+      customer_id: 42,
+      complement: "Apto 2",
+      landmark: "praça",
+      observation: "Troco para 200",
+      broadcast: "NEW_SALE",
+    });
   });
 
   it("keeps cents exact when converting to reais", () => {
-    const r = ok(buildDraft(input(), [{ productId: 23740, description: "X", priceCents: 10990 }], null, 10));
+    const r = ok(buildDraft(input(), [{ productId: GAS, description: "X", containerId: null, pricesCents: { PIX: 10990 } }], null, 10));
     expect(toSalePayload(r.data, 2580, "NONE").products[0]?.value).toBe(109.9);
   });
 });
