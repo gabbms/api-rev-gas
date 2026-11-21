@@ -47,6 +47,18 @@ export const customerProfiles = pgTable("customer_profiles", {
   updatedAt: updatedAt(),
 });
 
+/**
+ * Sales simulated while REVGAS_WRITE_ENABLED=false. Survive restarts so "cadê meu gás?" still
+ * works; the identity never reuses an id. Starts far above real RevGás ids.
+ */
+export const simulatedSales = pgTable("simulated_sales", {
+  id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity({ startWith: 900_000_001 }),
+  payload: jsonb("payload").notNull(),
+  totalCents: integer("total_cents").notNull(),
+  status: text("status").notNull().default("OPEN"),
+  createdAt: createdAt(),
+});
+
 export const messages = pgTable(
   "messages",
   {

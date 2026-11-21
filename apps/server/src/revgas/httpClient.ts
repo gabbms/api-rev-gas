@@ -1,8 +1,9 @@
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
-import { FakeRevgasClient } from "./fakeClient.js";
+import type { Db } from "../db/client.js";
 import { normalizePhone } from "./phone.js";
 import { RateLimiter } from "./rateLimiter.js";
+import { SimulatedSales } from "./simulatedSales.js";
 import {
   RevgasError,
   customerSchema,
@@ -169,22 +170,22 @@ function classify(status: number, message: string, body: unknown): RevgasErrorKi
 }
 
 /**
- * Reads always go to the real API. With writes disabled, sales are simulated in memory
- * (and simulated sales are also read back from memory).
+ * Reads always go to the real API. With writes disabled, sales are simulated and stored in our
+ * database (they survive restarts), and simulated sales are read back from there.
  */
-export function createRevgasClient(cfg: AppConfig, fetchFn: typeof fetch = fetch): RevgasClient {
+export function createRevgasClient(cfg: AppConfig, db: Db, fetchFn: typeof fetch = fetch): RevgasClient {
   const http = new HttpRevgasClient(cfg, new RateLimiter(1000), fetchFn);
   if (cfg.revgasWriteEnabled) return http;
 
-  const fake = new FakeRevgasClient();
+  const simulated = new SimulatedSales(db);
   return {
     findCustomersByPhone: (phone) => http.findCustomersByPhone(phone),
     listProducts: (id) => http.listProducts(id),
     listDeals: (id) => http.listDeals(id),
     createSale: async (payload) => {
       console.info("[revgas] escrita desligada: venda simulada");
-      return fake.createSale(payload);
+      return simulated.create(payload);
     },
-    getSale: (id) => (fake.hasSale(id) ? fake.getSale(id) : http.getSale(id)),
+    getSale: async (id) => (await simulated.find(id)) ?? http.getSale(id),
   };
 }

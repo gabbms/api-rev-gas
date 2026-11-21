@@ -12,7 +12,7 @@ loadDotenv({ path: new URL("../../../.env", import.meta.url), quiet: true });
 const cfg = loadConfig(process.env);
 
 const { db, close } = createDb(cfg.databaseUrl);
-const revgas = createRevgasClient(cfg);
+const revgas = createRevgasClient(cfg, db);
 // C2: prices come from RevGás deals (/deals), cached; warmed up now so the first customer doesn't wait.
 const catalog = new Catalog(revgas, cfg.revgasEstablishmentId, undefined, undefined, cfg.revgasProductIds);
 void catalog

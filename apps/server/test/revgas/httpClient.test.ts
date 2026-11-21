@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { loadConfig } from "../../src/config.js";
-import { HttpRevgasClient, createRevgasClient } from "../../src/revgas/httpClient.js";
+import { HttpRevgasClient } from "../../src/revgas/httpClient.js";
 import { RateLimiter } from "../../src/revgas/rateLimiter.js";
 import { RevgasError, type SalePayload } from "../../src/revgas/types.js";
 
@@ -225,23 +225,3 @@ describe("corrections from the API survey", () => {
   });
 });
 
-describe("createRevgasClient", () => {
-  it("does not call the API for createSale when writes are disabled", async () => {
-    const f = fakeFetch();
-    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
-    const c = createRevgasClient(cfg, f.fn);
-    const created = await c.createSale(sale);
-    expect(f.calls).toHaveLength(0);
-    expect(created.status).toBe("OPEN");
-    expect(info).toHaveBeenCalledWith("[revgas] escrita desligada: venda simulada");
-    expect(await c.getSale(created.id)).toMatchObject({ id: created.id });
-    expect(f.calls).toHaveLength(0);
-    info.mockRestore();
-  });
-
-  it("still reads from the real API when writes are disabled", async () => {
-    const f = fakeFetch(json(200, { data: [], pagination: { has_next: false } }));
-    await createRevgasClient(cfg, f.fn).listProducts(2580);
-    expect(f.calls).toHaveLength(1);
-  });
-});

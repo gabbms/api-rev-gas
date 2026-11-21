@@ -20,5 +20,5 @@ export async function setupTestDb(): Promise<{ db: Db; close: () => Promise<void
 }
 
 export async function resetTables(db: Db): Promise<void> {
-  await db.execute(sql`TRUNCATE order_drafts, llm_turns, messages, conversations, customer_profiles RESTART IDENTITY CASCADE`);
+  await db.execute(sql`TRUNCATE order_drafts, llm_turns, messages, conversations, customer_profiles, simulated_sales RESTART IDENTITY CASCADE`);
 }
