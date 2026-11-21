@@ -51,6 +51,25 @@ export function parseRange(from?: string, to?: string, now = new Date()): Metric
   return { fromDay, toDay, start, end };
 }
 
+/** An attendance starts after 30 minutes without any message in the conversation. */
+const ATTENDANCE_GAP_MS = 30 * 60_000;
+
+/**
+ * Start of the attendance that ended in a sale at `saleAt`: the latest customer message, up to the
+ * sale, that came after 30 minutes without messages or after the previous sale (whichever is more
+ * recent). `timeline` is the conversation's messages in time order.
+ */
+function attendanceStart(timeline: { author: string; at: Date }[], saleAt: Date, previousSale: Date | undefined): Date | null {
+  let start: Date | null = null;
+  timeline.forEach((m, i) => {
+    if (m.author !== "customer" || m.at > saleAt || (previousSale && m.at <= previousSale)) return;
+    const before = timeline[i - 1];
+    // The first customer message after the previous sale opens an attendance; so does one after a 30-minute silence.
+    if (start === null || !before || m.at.getTime() - before.at.getTime() >= ATTENDANCE_GAP_MS) start = m.at;
+  });
+  return start;
+}
+
 const avg = (values: number[]) => (values.length ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : null);
 
 export async function computeMetrics(db: Db, range: MetricsRange, opts: { simulated: boolean }): Promise<Metrics> {
@@ -111,10 +130,8 @@ export async function computeMetrics(db: Db, range: MetricsRange, opts: { simula
   const toOrder: number[] = [];
   for (const s of sales) {
     const previous = allSales.filter((p) => p.conversationId === s.conversationId && p.at < s.at).at(-1)?.at;
-    const first = (byConv.get(s.conversationId) ?? []).find(
-      (m) => m.author === "customer" && (!previous || m.at > previous) && m.at <= s.at,
-    );
-    if (first) toOrder.push(s.at.getTime() - first.at.getTime());
+    const start = attendanceStart(byConv.get(s.conversationId) ?? [], s.at, previous);
+    if (start) toOrder.push(s.at.getTime() - start.getTime());
   }
 
   return {

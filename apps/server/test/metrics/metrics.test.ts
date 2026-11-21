@@ -133,3 +133,47 @@ describe("parseRange", () => {
     expect(() => parseRange(from, to)).toThrow();
   });
 });
+
+describe("computeMetrics — start of an attendance for the time to order", () => {
+  const range = () => parseRange("2026-11-22", "2026-11-22");
+
+  it("counts only from today's message when the conversation has messages from yesterday", async () => {
+    const f = await conv("86900000006");
+    await msg(f, "customer", at("22:00:00", "2026-11-21")); // yesterday's "oi"
+    await msg(f, "bot", at("22:00:05", "2026-11-21"));
+    await msg(f, "customer", at("09:00:00", "2026-11-22")); // today: new attendance
+    await msg(f, "bot", at("09:00:03", "2026-11-22"));
+    await msg(f, "customer", at("09:01:00", "2026-11-22"));
+    await sale(f, 16000, at("09:03:00", "2026-11-22"));
+    expect((await computeMetrics(db, range(), { simulated: true })).avgTimeToOrderMs).toBe(3 * 60_000);
+  });
+
+  it("starts a new attendance after 30 minutes without any message, on the same day", async () => {
+    const g = await conv("86900000007");
+    await msg(g, "customer", at("10:00:00", "2026-11-22"));
+    await msg(g, "bot", at("10:00:02", "2026-11-22"));
+    await msg(g, "customer", at("10:30:02", "2026-11-22")); // exactly 30 min after the bot: new attendance
+    await sale(g, 16000, at("10:35:02", "2026-11-22"));
+    expect((await computeMetrics(db, range(), { simulated: true })).avgTimeToOrderMs).toBe(5 * 60_000);
+  });
+
+  it("keeps a pause shorter than 30 minutes inside the same attendance", async () => {
+    const h = await conv("86900000008");
+    await msg(h, "customer", at("11:00:00", "2026-11-22"));
+    await msg(h, "bot", at("11:00:02", "2026-11-22"));
+    await msg(h, "customer", at("11:29:00", "2026-11-22"));
+    await sale(h, 16000, at("11:30:00", "2026-11-22"));
+    expect((await computeMetrics(db, range(), { simulated: true })).avgTimeToOrderMs).toBe(30 * 60_000);
+  });
+
+  it("starts after the previous sale even when it was less than 30 minutes ago", async () => {
+    const i = await conv("86900000009");
+    await msg(i, "customer", at("13:00:00", "2026-11-22"));
+    await sale(i, 16000, at("13:01:00", "2026-11-22"));
+    await msg(i, "bot", at("13:01:02", "2026-11-22"));
+    await msg(i, "customer", at("13:05:00", "2026-11-22"));
+    await sale(i, 16000, at("13:08:00", "2026-11-22"));
+    // 60 s for the first sale, 180 s for the second
+    expect((await computeMetrics(db, range(), { simulated: true })).avgTimeToOrderMs).toBe(120_000);
+  });
+});
