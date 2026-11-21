@@ -28,17 +28,30 @@ A IA só conversa e pede ferramentas (`buscar_cliente`, `listar_produtos`, `mont
 
 - **o preço vem dos acordos da RevGás** (`GET /deals`, acordos gerais por forma de pagamento), nunca do
   texto da IA. O preço depende da forma de pagamento, então o pedido só é precificado depois que o
-  cliente diz como vai pagar. Forma de pagamento sem acordo para o produto não pode ser usada;
-- para gás, o bot pergunta se o cliente tem **botijão vazio para trocar**. Se não tiver, o vasilhame
-  (`container_id` do produto) entra no pedido com o preço dele;
+  cliente diz como vai pagar. Forma de pagamento sem acordo para o produto não pode ser usada.
+  Formas aceitas: Pix, dinheiro, cartão de crédito e cartão de débito (vale gás fica de fora até a
+  RevGás dizer como enviar o código do cupom);
+- para gás, o bot pergunta **quantos botijões vazios** o cliente tem para trocar. Para cada botijão de
+  gás sem vazio, o vasilhame (`container_id` do produto) entra no pedido com o preço dele. Exemplo:
+  2× GLP 13KG com 1 vazio → 1 vasilhame;
 - o resumo do pedido é gerado pelo sistema e enviado ao cliente;
 - a venda só é criada se o resumo atual foi enviado **e** o cliente respondeu depois dele;
 - um "sim" repetido ou simultâneo não cria venda duplicada (trava no banco);
 - falha sem resposta clara da RevGás (timeout, rede, 5xx) **não** é repetida: o pedido fica "incerto" e a
-  conversa vai para um atendente conferir no ERP.
+  conversa vai para um atendente conferir no ERP. Se o servidor cair no meio de uma venda, na próxima
+  subida o pedido vira "incerto" e a conversa vai para um atendente.
 
-Os acordos são lidos uma vez na subida do servidor e ficam em cache por 30 minutos. São cerca de 12
-páginas, e o limite de 1 requisição por segundo faz a primeira carga levar uns 12 segundos.
+Os acordos são lidos na subida do servidor e ficam em cache por 30 minutos. São cerca de 12 páginas, e o
+limite de 1 requisição por segundo faz a primeira carga levar uns 12 segundos. Depois disso, a recarga
+acontece em segundo plano: o cliente continua vendo os preços anteriores até ela terminar, e se ela
+falhar os preços anteriores continuam valendo.
+
+### Atendimento humano
+
+Quando a conversa passa para um atendente, o bot para de responder e o resumo que estava na tela deixa de
+valer (um "sim" mandado ao atendente não confirma o pedido). Ao clicar em **Devolver ao bot**, a IA
+recebe um resumo do que o cliente e o atendente conversaram nesse período. Se a IA ficar sem resposta,
+o bot pede para o cliente repetir; na segunda vez seguida, chama um atendente.
 
 ### Clientes: endereço guardado no nosso banco
 
@@ -87,12 +100,14 @@ Para conferir a leitura real da RevGás (só leitura: produtos, acordos e a busc
 | `REVGAS_CUSTOMERS_ENABLED` | `false` | Com `true`, `buscar_cliente` também consulta `GET /customers?phone=` depois do perfil local e preenche o `customer_id` da venda quando acha exatamente um cliente. Um 403 é tratado como "cliente não identificado" e nunca derruba a conversa. Deixe `false` até a RevGás liberar a leitura de clientes para o token. |
 | `REVGAS_BROADCAST` | `NONE` | `NEW_SALE` pode notificar entregadores reais. Só mude com autorização da RevGás. |
 | `REVGAS_ESTABLISHMENT_ID` | `2580` | Estabelecimento das vendas, dos produtos e dos acordos de preço. |
+| `REVGAS_PRODUCT_IDS` | vazio | Lista de ids separados por vírgula. Preenchida, o bot só oferece esses produtos e os vasilhames ligados a eles (o 2580 tem vários "GLP 13KG TESTE" que confundem a IA). Exemplo no `.env.example`: `23740,23974,24141` (GLP 13kg, GLP 45kg e água 10L). |
 
 ### `REVGAS_WRITE_ENABLED` — por que está `false`
 
 Com `REVGAS_WRITE_ENABLED=false`, as leituras (produtos, acordos, vendas) vão para a RevGás de verdade,
-mas **nenhuma venda é enviada**: a venda é simulada em memória, recebe um número a partir de
-`900000001` e o servidor registra `[revgas] escrita desligada: venda simulada`. A página mostra a faixa
+mas **nenhuma venda é enviada**: a venda é simulada e guardada na tabela `simulated_sales` do nosso banco, recebe um número a partir de
+`900000001` (que nunca se repete, mesmo depois de reiniciar) e o servidor registra
+`[revgas] escrita desligada: venda simulada`. "Cadê meu gás?" continua funcionando depois de reiniciar. A página mostra a faixa
 "Modo de teste — vendas NÃO são enviadas à RevGás".
 
 O token do projeto aponta para o estabelecimento 2580 ("RevGás - Técnico"). Até a RevGás confirmar que
@@ -104,7 +119,7 @@ Abra http://localhost:5173. À esquerda está o celular do cliente (número padr
 painel de atendimento.
 
 1. **Pedido completo (cliente novo).** Como cliente, envie "quero um botijão, pago no pix". O bot pergunta
-   nome, endereço e se você tem botijão vazio para trocar. Responda que **não tem** para ver o vasilhame no
+   nome, endereço e quantos botijões vazios você tem para trocar. Responda que **não tem** para ver o vasilhame no
    resumo oficial (preços reais dos acordos do 2580):
    ```
    Resumo do pedido:

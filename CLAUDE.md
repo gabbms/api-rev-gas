@@ -31,9 +31,9 @@ React + Vite · Vitest.
    Leituras (`GET` clientes, produtos, vendas) são permitidas.
 2. **Segredos:** `REVGAS_API_KEY` e `ANTHROPIC_API_KEY` só no `.env` (gitignored). Nunca escrever o
    valor em código, testes, logs, mensagens de commit, README ou respostas no chat.
-3. **A IA não decide dinheiro:** preço vem de `apps/server/config/prices.json`; o resumo do pedido é
-   gerado pelo código; a venda só é criada por `OrderService.confirm`, que exige resumo apresentado +
-   resposta posterior do cliente. Nunca mover essas regras para o prompt.
+3. **A IA não decide dinheiro:** o preço vem só do `Catalog`, que lê os acordos da RevGás (`/deals`);
+   o resumo do pedido é gerado pelo código; a venda só é criada por `OrderService.confirm`, que exige
+   resumo apresentado + resposta posterior do cliente. Nunca mover essas regras para o prompt.
 4. **Limite RevGás: 1 requisição/segundo global.** Tudo passa pelo `RateLimiter`.
 5. **Sem retry automático de `POST /sales`** em timeout/5xx/rede: marca `uncertain` e passa para humano.
 6. Histórico com a IA é **append-only** (`llm_turns`): guardar e reenviar os blocos de `content`
@@ -42,18 +42,27 @@ React + Vite · Vitest.
 
 ## API RevGás — o essencial
 
-- Docs: https://revgas.stoplight.io/docs/revgas-api (renderiza com JS; use navegador se precisar)
+Antes de mexer em `apps/server/src/revgas/` ou `catalog/`, leia `docs/revgas-api.md` (rotas, permissões
+reais do token, decisões C1–C8). Campos e enums: `docs/revgas-openapi.yaml` é a fonte de verdade.
+
 - Base `https://api.revgas.com/v1`, header `Authorization: <API_KEY>` (sem "Bearer").
 - Estabelecimento do token: **2580 "RevGás - Técnico"** (conta técnica). A conta também vê 2601 "Filial 2".
-- `GET /customers?phone=86999998888` (padrão `^(\+?55)?\d{10,11}$`), `GET /products?establishment_id=&page=&page_size=`
-  (sem preço!), `POST /sales`, `GET /sales/{id}`. Paginação: `{ pagination: { has_next }, data: [...] }`.
-- Venda: endereço (`location`, `number`, `neighborhood`, `city`, `state_federation`, `complement`,
-  `landmark`), `customer_id?`, `establishment_id`, `products[{product_id, quantity, value}]`,
-  `payments[{payment_type, value}]`, `channel: "WHATSAPP"`, `origin: "INTEGRATION"`,
-  `option: "NORMAL"`, `broadcast: "NONE"` (padrão; `NEW_SALE` pode notificar entregador real).
-- Status da venda: `OPEN`, `ACTIVE`, `WARNING`, `CONFIRM`, `CHECK`, `CANCEL`.
+- **O token não acessa `/customers`** (403, assim como `/calls`, `/deliverers`, `/payment-types`). O
+  cliente é guardado no nosso banco (`customer_profiles`, gravado só após venda criada) e a venda sai sem
+  `customer_id`. A busca na RevGás fica atrás de `REVGAS_CUSTOMERS_ENABLED=false`.
+- **Preço por forma de pagamento:** `GET /products` não tem preço; o preço é o `suggested_value` dos
+  acordos `PAYMENT_TYPE` de `GET /deals` (chega como número, não string). Par produto + pagamento sem
+  acordo = não vender por esse meio. Formas aceitas: lista fixa em `revgas/types.ts` (sem `VALEGAS`).
+- **Vasilhame:** o gás aponta para o vasilhame em `container_id`. Cobra-se um vasilhame para cada botijão
+  de gás sem vazio para trocar (`emptyCylinders`).
+- Venda (`POST /sales`): endereço (`location`, `number`, `neighborhood`, `city`, `state_federation`,
+  `complement`, `landmark`), `establishment_id`, `products[{product_id, quantity, value}]` com **`value`
+  unitário**, `payments[{payment_type, value}]`, `channel: "WHATSAPP"`, `origin: "INTEGRATION"`,
+  `option: "NORMAL"`, `broadcast: "NONE"` (`NEW_SALE` pode notificar entregador real). A spec não declara
+  campos obrigatórios.
+- Status: `OPEN`, `ACTIVE`, `WARNING` (o filtro usa `WARN`), `CONFIRM`, `CHECK`, `CANCEL`; tolerar outros.
 - Erros: 400/422 inválido · 401/402/403 auth · 409 lock (repetir) ou duplicado · 429 limite · 500.
-- Datas de listagem: intervalo máximo 366 dias; sem filtro = mês atual.
+- Paginação `{ pagination: { has_next }, data: [...] }`; listagens por data: máximo 366 dias.
 
 ## IA (Claude)
 
@@ -66,5 +75,5 @@ React + Vite · Vitest.
 
 ## Perguntas em aberto com a RevGás
 
-1. Fonte real do preço dos produtos. 2. Liberação para criar/cancelar vendas no 2580.
-3. Se `broadcast: NEW_SALE` notifica entregadores reais. 4. Se venda sem `customer_id` é aceita.
+Lista atual na seção "Perguntas em aberto para a RevGás" do `README.md`. Uma decisão que dependa de uma
+delas fica bloqueada até a resposta.
