@@ -12,7 +12,7 @@ import {
 } from "../../src/conversations/conversationService.js";
 import type { Db } from "../../src/db/client.js";
 import { asc } from "drizzle-orm";
-import { conversations, llmTurns, messages, orderDrafts } from "../../src/db/schema.js";
+import { conversations, handoffs, llmTurns, messages, orderDrafts } from "../../src/db/schema.js";
 import { OrderService } from "../../src/orders/orderService.js";
 import { FakeRevgasClient } from "../../src/revgas/fakeClient.js";
 import { resetTables, setupTestDb } from "../helpers/testDb.js";
@@ -102,6 +102,19 @@ describe("ConversationService", () => {
     ).handleCustomerMessage("86999998888", "quero um botijão, pix");
     expect(log).toEqual(["send:Vou te mandar o resumo.", "send:Resumo do pedido: ...", "markPresented"]);
     expect(mark).toHaveBeenCalledWith("d-1", expect.any(Date));
+  });
+
+  it("records every handoff with its reason, for the metrics", async () => {
+    const svc = service(replying(null, { handoff: { reason: "Cliente pediu humano" } }));
+    await svc.handleCustomerMessage("86999998888", "quero falar com uma pessoa");
+    const conv = await conversationByPhone("86999998888");
+    await svc.returnToBot(conv!.id);
+    await service(replying(null, { handoff: { reason: "Reclamação" } })).handleCustomerMessage("86999998888", "veio vazando");
+    const rows = await db.select().from(handoffs);
+    expect(rows.map((r) => [r.conversationId, r.reason])).toEqual([
+      [conv!.id, "Cliente pediu humano"],
+      [conv!.id, "Reclamação"],
+    ]);
   });
 
   it("hands off to a human and can return to the bot", async () => {

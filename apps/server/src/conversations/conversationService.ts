@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gt, max, sql } from "drizzle-orm";
 import { appendContextTurn, runAgentTurn, type AgentDeps, type ToolContext } from "../agent/agent.js";
-import { conversations, messages } from "../db/schema.js";
+import { conversations, handoffs, messages } from "../db/schema.js";
 import { normalizePhone } from "../revgas/phone.js";
 
 export type Outgoing = { conversationId: string; phone: string; author: "bot" | "attendant" | "system"; text: string };
@@ -151,6 +151,7 @@ export class ConversationService {
       .update(conversations)
       .set({ mode: "human", handoffReason: reason, handoffAt: new Date(), updatedAt: new Date() })
       .where(eq(conversations.id, conversationId));
+    await this.deps.db.insert(handoffs).values({ conversationId, reason, createdAt: new Date() });
     // A "sim" sent while a human attends must not confirm the summary shown before.
     await this.deps.orders.clearPresentation(conversationId);
     await this.deliver({ conversationId, phone, author: "bot", text: HANDOFF_TEXT });

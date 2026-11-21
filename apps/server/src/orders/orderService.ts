@@ -3,7 +3,9 @@ import type { Catalog } from "../catalog/catalog.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/client.js";
 import { pricingCustomer, saveProfileFromSale } from "../customers/customerProfiles.js";
-import { conversations, messages, orderDrafts } from "../db/schema.js";
+import { conversations, handoffs, messages, orderDrafts } from "../db/schema.js";
+
+const RECOVERY_REASON = "Venda possivelmente interrompida; conferir no ERP";
 import { RevgasError, type RevgasClient, type RevgasSale } from "../revgas/types.js";
 import { buildDraft, toSalePayload, type DraftData, type DraftInput, type DraftResult } from "./draft.js";
 
@@ -180,8 +182,9 @@ export class OrderService {
     for (const d of stuck) {
       await this.db
         .update(conversations)
-        .set({ mode: "human", handoffReason: "Venda possivelmente interrompida; conferir no ERP", updatedAt: now })
+        .set({ mode: "human", handoffReason: RECOVERY_REASON, handoffAt: now, updatedAt: now })
         .where(eq(conversations.id, d.conversationId));
+      await this.db.insert(handoffs).values({ conversationId: d.conversationId, reason: RECOVERY_REASON, createdAt: now });
       console.warn(`[pedidos] rascunho ${d.id} estava em 'sending' após reinício; marcado como incerto e enviado a um atendente`);
     }
     return stuck.length;

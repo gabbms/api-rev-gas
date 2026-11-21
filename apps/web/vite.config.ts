@@ -11,6 +11,7 @@ export default defineConfig({
       "/ws": { target, ws: true },
       "/conversations": target,
       "/health": target,
+      "/metrics": target,
     },
   },
 });

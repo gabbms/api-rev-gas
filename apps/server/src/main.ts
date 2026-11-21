@@ -37,7 +37,7 @@ const conversations = new ConversationService(
 );
 hub.attach(conversations);
 
-const app = await buildServer({ cfg, conversations, hub, logger: true });
+const app = await buildServer({ cfg, conversations, hub, db, logger: true });
 app.addHook("onClose", async () => close());
 
 await app.listen({ port: cfg.port, host: "127.0.0.1" });

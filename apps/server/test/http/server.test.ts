@@ -56,7 +56,7 @@ beforeEach(async () => {
   const hub = new Hub();
   const conversations = new ConversationService(deps, (m) => hub.message(m), (id) => hub.changed(id), runTurn);
   hub.attach(conversations);
-  app = await buildServer({ cfg, conversations, hub });
+  app = await buildServer({ cfg, conversations, hub, db });
   await app.ready();
 });
 afterEach(async () => {
@@ -106,6 +106,27 @@ describe("HTTP server", () => {
     const history = await app.inject({ method: "GET", url: `/conversations/${items[0]!.id}/messages` });
     expect(history.json().items.map((m: { author: string }) => m.author)).toEqual(["customer", "bot"]);
     seen.push(history.body);
+  });
+
+  it("serves the metrics of today, marked as simulated while writes are off", async () => {
+    const ws = await app.injectWS("/ws");
+    const reply = nextMessage(ws, "message");
+    ws.send(JSON.stringify({ type: "customer_message", phone: "86999998888", text: "oi" }));
+    await reply;
+    ws.terminate();
+    const res = await app.inject({ method: "GET", url: "/metrics" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toMatchObject({ simulated: true, conversations: 1, sales: { count: 0 } });
+    expect(body.from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(typeof body.avgBotResponseMs).toBe("number");
+    seen.push(res.body);
+  });
+
+  it("answers 400 to an invalid metrics range", async () => {
+    const res = await app.inject({ method: "GET", url: "/metrics?from=2026-11-21&to=2026-11-01" });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/anterior/);
   });
 
   it("never exposes the RevGás or Anthropic keys", () => {

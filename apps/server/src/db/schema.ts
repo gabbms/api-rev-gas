@@ -63,6 +63,20 @@ export const simulatedSales = pgTable("simulated_sales", {
   createdAt: createdAt(),
 });
 
+/** Every handoff to a human, with its reason (the conversation keeps only the latest). For metrics. */
+export const handoffs = pgTable(
+  "handoffs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id),
+    reason: text("reason").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("handoffs_created_idx").on(t.createdAt)],
+);
+
 export const messages = pgTable(
   "messages",
   {

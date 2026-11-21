@@ -2,11 +2,13 @@ import type { ConversationSummary } from "@revgas/shared";
 import { useEffect, useState } from "react";
 import { AttendantPane } from "./AttendantPane";
 import { ChatPane } from "./ChatPane";
+import { MetricsPane } from "./MetricsPane";
 import { useOnline, useServerMessages } from "./ws";
 
 export function App() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [version, setVersion] = useState(0);
+  const [tab, setTab] = useState<"desk" | "metrics">("desk");
   const [writeEnabled, setWriteEnabled] = useState<boolean | null>(null);
   const online = useOnline();
 
@@ -41,7 +43,21 @@ export function App() {
       {!online && <div className="offline">Sem conexão com o servidor. Tentando reconectar…</div>}
       <main className="columns">
         <ChatPane conversations={conversations} />
-        <AttendantPane conversations={conversations} version={version} />
+        <div className="side">
+          <nav className="tabs" role="tablist" aria-label="Painéis">
+            <button role="tab" aria-selected={tab === "desk"} className={tab === "desk" ? "active" : ""} onClick={() => setTab("desk")}>
+              Atendimento
+            </button>
+            <button role="tab" aria-selected={tab === "metrics"} className={tab === "metrics" ? "active" : ""} onClick={() => setTab("metrics")}>
+              Métricas
+            </button>
+          </nav>
+          {tab === "desk" ? (
+            <AttendantPane conversations={conversations} version={version} />
+          ) : (
+            <MetricsPane version={version} />
+          )}
+        </div>
       </main>
     </div>
   );

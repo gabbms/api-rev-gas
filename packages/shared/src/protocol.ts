@@ -37,3 +37,18 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("error"), message: z.string() }),
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;
+
+// GET /metrics
+export const metricsSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  simulated: z.boolean(),
+  conversations: z.number(),
+  botResolved: z.number(),
+  automationRate: z.number(),
+  sales: z.object({ count: z.number(), totalCents: z.number(), averageTicketCents: z.number() }),
+  handoffs: z.object({ total: z.number(), byReason: z.array(z.object({ reason: z.string(), count: z.number() })) }),
+  avgBotResponseMs: z.number().nullable(),
+  avgTimeToOrderMs: z.number().nullable(),
+});
+export type Metrics = z.infer<typeof metricsSchema>;

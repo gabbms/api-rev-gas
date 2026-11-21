@@ -50,6 +50,13 @@
       "when": 1795296097859,
       "tag": "0006_polite_stepford_cuckoos",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1795296306719,
+      "tag": "0007_abandoned_maverick",
+      "breakpoints": true
     }
   ]
 }

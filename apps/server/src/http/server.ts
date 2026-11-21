@@ -4,6 +4,8 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import type { ConversationService, Outgoing } from "../conversations/conversationService.js";
+import type { Db } from "../db/client.js";
+import { computeMetrics, parseRange } from "../metrics/metrics.js";
 
 type Socket = { send(data: string): void; readyState: number; OPEN: number };
 
@@ -70,14 +72,16 @@ function send(socket: Socket, msg: ServerMessage): void {
 }
 
 const idParams = z.object({ id: z.uuid() });
+const metricsQuery = z.object({ from: z.string().optional(), to: z.string().optional() });
 
 export async function buildServer(deps: {
   cfg: AppConfig;
   conversations: ConversationService;
   hub: Hub;
+  db: Db;
   logger?: boolean;
 }): Promise<FastifyInstance> {
-  const { cfg, conversations, hub } = deps;
+  const { cfg, conversations, hub, db } = deps;
   const app = Fastify({ logger: deps.logger ?? false });
   await app.register(websocket);
   app.addHook("onClose", async () => hub.close());
@@ -85,6 +89,18 @@ export async function buildServer(deps: {
   app.get("/health", async () => ({ ok: true, revgasWriteEnabled: cfg.revgasWriteEnabled }));
 
   app.get("/conversations", async () => ({ items: (await conversations.list()).map(toSummary) }));
+
+  app.get("/metrics", async (req, reply) => {
+    const q = metricsQuery.safeParse(req.query);
+    if (!q.success) return reply.code(400).send({ error: "Parâmetros inválidos" });
+    let range;
+    try {
+      range = parseRange(q.data.from, q.data.to);
+    } catch (e) {
+      return reply.code(400).send({ error: e instanceof Error ? e.message : "Período inválido" });
+    }
+    return computeMetrics(db, range, { simulated: !cfg.revgasWriteEnabled });
+  });
 
   app.get("/conversations/:id/messages", async (req, reply) => {
     const params = idParams.safeParse(req.params);
