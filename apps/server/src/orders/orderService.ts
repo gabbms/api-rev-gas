@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNotNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, lte, sql } from "drizzle-orm";
 import type { Catalog } from "../catalog/catalog.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/client.js";
@@ -166,12 +166,14 @@ export class OrderService {
   /**
    * On startup: a draft still in 'sending' means the process died mid-sale. RevGás may or may not
    * have the sale, so mark it uncertain and hand the conversation to a human. Returns how many.
+   * There is a single server, so at startup no sale is in progress: the default limit is zero
+   * (`pnpm dev` restarts within seconds on every save).
    */
-  async recoverInterruptedSales(olderThanMs = 2 * 60_000, now = new Date()): Promise<number> {
+  async recoverInterruptedSales(olderThanMs = 0, now = new Date()): Promise<number> {
     const stuck = await this.db
       .update(orderDrafts)
       .set({ status: "uncertain", errorMessage: "Venda possivelmente interrompida (servidor reiniciou)", updatedAt: now })
-      .where(and(eq(orderDrafts.status, "sending"), lt(orderDrafts.updatedAt, new Date(now.getTime() - olderThanMs))))
+      .where(and(eq(orderDrafts.status, "sending"), lte(orderDrafts.updatedAt, new Date(now.getTime() - olderThanMs))))
       .returning({ id: orderDrafts.id, conversationId: orderDrafts.conversationId });
     for (const d of stuck) {
       await this.db

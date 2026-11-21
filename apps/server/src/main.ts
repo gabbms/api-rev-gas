@@ -21,6 +21,7 @@ void catalog
   .catch((e: unknown) => console.error("[catálogo] falha ao carregar produtos/acordos:", e instanceof Error ? e.message : e));
 const orders = new OrderService(db, catalog, revgas, cfg);
 // A draft left in 'sending' by a crash would block that phone forever: settle it before serving.
+// Limit zero: a single server, so nothing can be mid-sale while it starts.
 await orders.recoverInterruptedSales();
 const anthropic = new Anthropic({ apiKey: cfg.anthropicApiKey });
 

@@ -245,6 +245,22 @@ describe("OrderService — robustness after a crash", () => {
     warn.mockRestore();
   });
 
+  it("on startup (no arguments) also recovers a draft in 'sending' updated only 10 seconds ago", async () => {
+    // Single server: when it starts, no sale can be in progress — even after a restart under 2 minutes.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const [draft] = await db
+      .insert(orderDrafts)
+      .values({ conversationId, status: "sending", payload, totalCents: 1, updatedAt: new Date(Date.now() - 10_000) })
+      .returning();
+
+    expect(await orders.recoverInterruptedSales()).toBe(1);
+
+    expect(await draftStatus(draft!.id)).toMatchObject({ status: "uncertain" });
+    const [conv] = await db.select().from(conversations).where(eq(conversations.id, conversationId));
+    expect(conv).toMatchObject({ mode: "human", handoffReason: "Venda possivelmente interrompida; conferir no ERP" });
+    warn.mockRestore();
+  });
+
   it("does not leave the draft in 'sending' when recording a created sale fails", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const draftId = await readyDraft();
