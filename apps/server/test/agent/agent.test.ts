@@ -340,6 +340,29 @@ describe("tools", () => {
     expect(r.content).toMatch(/botijões vazios/);
   });
 
+  // Found in the real-AI demo: the model omitted the optional field 7 times in a row ("sem vazio" in
+  // the observation) until the step limit. Required + strict makes the API always send it.
+  it("montar_pedido requires emptyCylinders in the strict schema", () => {
+    const schema = toolDefinitions.find((t) => t.name === "montar_pedido")!.input_schema as { required: string[] };
+    expect(schema.required).toContain("emptyCylinders");
+  });
+
+  it("montar_pedido explains how to fill emptyCylinders when it is missing", async () => {
+    const r = await runTool("montar_pedido", { ...orderInput, emptyCylinders: undefined }, ctx(), deps(scriptedAnthropic()));
+    expect(r.content).toContain("emptyCylinders");
+    expect(r.content).toMatch(/0 se o cliente não tem/);
+  });
+
+  it("montar_pedido accepts emptyCylinders 0 for a water-only order", async () => {
+    fake.products.push({ id: 24141, description: "AGUA 10L", inactive: false, establishment_id: 2580 });
+    fake.deals.push(pixDeal(24141, 15));
+    const c = ctx();
+    const input = { ...orderInput, items: [{ productId: 24141, quantity: 1 }], emptyCylinders: 0 };
+    const r = await runTool("montar_pedido", input, c, deps(scriptedAnthropic()));
+    expect(r.isError).toBe(false);
+    expect(c.events.draftPresentable?.summaryText).not.toContain("VASILHAME");
+  });
+
   it("montar_pedido (C3) adds the cylinder when the customer has none to swap", async () => {
     const c = ctx();
     await runTool("montar_pedido", { ...orderInput, emptyCylinders: 0 }, c, deps(scriptedAnthropic()));

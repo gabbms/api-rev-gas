@@ -99,12 +99,12 @@ export const toolDefinitions: Anthropic.Beta.BetaTool[] = [
         emptyCylinders: {
           type: "integer",
           description:
-            "Para gás: quantos botijões vazios o cliente tem para trocar (0 se nenhum). O sistema cobra um vasilhame para cada botijão de gás sem vazio. Pergunte antes de montar.",
+            "Quantos botijões vazios o cliente tem para trocar: 0 se ele não tem nenhum ou se o pedido não tem gás. O sistema cobra um vasilhame para cada botijão de gás sem vazio. Sempre informe.",
         },
         customerName: { type: "string", description: "Nome do cliente, se ele informou" },
         observation: { type: "string", description: "Observação para a entrega, ex.: troco para R$ 200" },
       },
-      required: ["items", "address", "payments"],
+      required: ["items", "address", "payments", "emptyCylinders"],
       additionalProperties: false,
     },
     strict: true,
@@ -137,6 +137,9 @@ export const toolDefinitions: Anthropic.Beta.BetaTool[] = [
 
 const emptyInput = z.object({}).strict();
 
+const EMPTY_CYLINDERS_HELP =
+  "informe emptyCylinders com o número de botijões vazios para trocar (0 se o cliente não tem nenhum ou se o pedido não tem gás)";
+
 const montarPedidoInput = z
   .object({
     items: z.array(z.object({ productId: z.number().int(), quantity: z.number().int() }).strict()),
@@ -152,7 +155,7 @@ const montarPedidoInput = z
       })
       .strict(),
     payments: z.array(z.object({ type: z.enum(PAYMENT_TYPES), amountCents: z.number().int().optional() }).strict()),
-    emptyCylinders: z.number().int().min(0).optional(),
+    emptyCylinders: z.number({ error: EMPTY_CYLINDERS_HELP }).int({ error: EMPTY_CYLINDERS_HELP }).min(0, { error: EMPTY_CYLINDERS_HELP }),
     customerName: z.string().optional(),
     observation: z.string().optional(),
   })
