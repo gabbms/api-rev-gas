@@ -31,6 +31,20 @@ export async function runAgentTurn(
     messages.push({ role, content } as MessageParam);
   };
 
+  // A crash between storing an assistant tool_use and its tool_result leaves the history
+  // unreplayable. Close it by appending error results (never editing stored turns).
+  const last = messages.at(-1);
+  if (last?.role === "assistant" && Array.isArray(last.content)) {
+    const pending = (last.content as { type: string; id?: string }[]).filter((b) => b.type === "tool_use" && b.id);
+    if (pending.length > 0) {
+      console.warn(`[agente] ${pending.length} ferramenta(s) sem resultado no histórico; registrando "Execução interrompida"`);
+      await append(
+        "user",
+        pending.map((b) => ({ type: "tool_result", tool_use_id: b.id!, content: "Execução interrompida", is_error: true })),
+      );
+    }
+  }
+
   await append("user", customerText);
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {

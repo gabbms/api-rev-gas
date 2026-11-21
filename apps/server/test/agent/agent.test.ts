@@ -142,6 +142,42 @@ describe("runAgentTurn", () => {
     expect(requests[1]!.messages[1]).toEqual({ role: "assistant", content: firstContent });
   });
 
+  it("closes tool_use left without tool_result by a crash, appending (not editing) error results", async () => {
+    const pending = [thinking("s"), toolUse("t8", "listar_produtos", {}), toolUse("t9", "buscar_cliente", {})];
+    await db.insert(llmTurns).values([
+      { conversationId, role: "user", content: "oi" },
+      { conversationId, role: "assistant", content: pending },
+    ]);
+    const before = await turns();
+
+    await runAgentTurn(ctx(), "quero gás", deps(scriptedAnthropic(reply([text("Claro!")], "end_turn"))));
+
+    expect(requests[0]!.messages).toEqual([
+      { role: "user", content: "oi" },
+      { role: "assistant", content: pending },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "t8", content: "Execução interrompida", is_error: true },
+          { type: "tool_result", tool_use_id: "t9", content: "Execução interrompida", is_error: true },
+        ],
+      },
+      { role: "user", content: "quero gás" },
+    ]);
+    const after = await turns();
+    expect(after.slice(0, 2)).toEqual(before); // nothing edited
+    expect(after.map((r) => r.role)).toEqual(["user", "assistant", "user", "user", "assistant"]);
+  });
+
+  it("does not add results when the last assistant turn has none pending", async () => {
+    await db.insert(llmTurns).values([
+      { conversationId, role: "user", content: "oi" },
+      { conversationId, role: "assistant", content: [text("Olá!")] },
+    ]);
+    await runAgentTurn(ctx(), "quero gás", deps(scriptedAnthropic(reply([text("Claro!")], "end_turn"))));
+    expect(requests[0]!.messages).toHaveLength(3);
+  });
+
   it("replays stored history on the next customer message", async () => {
     await runAgentTurn(ctx(), "oi", deps(scriptedAnthropic(reply([thinking("s"), text("Olá!")], "end_turn"))));
     await runAgentTurn(ctx(), "quero gás", deps(scriptedAnthropic(reply([text("Claro!")], "end_turn"))));
