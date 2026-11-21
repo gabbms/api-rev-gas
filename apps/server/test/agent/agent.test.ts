@@ -472,4 +472,14 @@ describe("tools", () => {
     expect(SYSTEM_PROMPT).not.toMatch(/ou vale gás\)/);
     expect(SYSTEM_PROMPT).toContain("vale gás ainda não é aceito");
   });
+
+  it("treats more products after a registered order as a new order, without asking", () => {
+    expect(SYSTEM_PROMPT).toContain("trate como um pedido novo");
+    expect(SYSTEM_PROMPT).toContain("sem perguntar se é para incluir no anterior");
+  });
+
+  it("calls an attendant to change or cancel a registered order only when the customer says so clearly", () => {
+    expect(SYSTEM_PROMPT).toContain("pedir claramente para alterar ou cancelar um pedido já registrado");
+    expect(SYSTEM_PROMPT).not.toContain("o cliente quiser cancelar ou alterar um pedido já registrado");
+  });
 });
