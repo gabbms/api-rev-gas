@@ -279,3 +279,37 @@ describe("OrderService — robustness after a crash", () => {
     error.mockRestore();
   });
 });
+
+describe("OrderService — REVGAS_PRICE_PRIORITY", () => {
+  const priorityOn = loadConfig({
+    DATABASE_URL: "postgres://x", REVGAS_API_KEY: "k", ANTHROPIC_API_KEY: "a",
+    REVGAS_CUSTOMERS_ENABLED: "true", REVGAS_PRICE_PRIORITY: "true",
+  });
+
+  beforeEach(async () => {
+    fake.deals.push({ id: 2, product_id: 23740, payment_type: "PIX", suggested_value: 99, minimum_value: null, type: "CUSTOMER", is_default: false, customer_id: 77 });
+    await db.insert(customerProfiles).values({ phone: "86999998888", revgasCustomerId: 77, revgasTagId: null });
+  });
+
+  it("prices an identified customer's order with their own deal and records it", async () => {
+    const svc = new OrderService(db, new Catalog(fake, 2580), fake, priorityOn);
+    const r = await svc.upsertDraft(conversationId, input(), 77);
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    expect(r.data.lines[0]).toMatchObject({ unitCents: 9900, priceSource: "CUSTOMER" });
+    const [row] = await db.select().from(orderDrafts);
+    expect((row!.payload as { lines: { priceSource: string }[] }).lines[0]!.priceSource).toBe("CUSTOMER");
+  });
+
+  it("keeps the general price when the flag is off", async () => {
+    const r = await orders.upsertDraft(conversationId, input(), 77);
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    expect(r.data.lines[0]).toMatchObject({ unitCents: 11000, priceSource: "PAYMENT_TYPE" });
+  });
+
+  it("keeps the general price for a customer not identified in RevGás", async () => {
+    const svc = new OrderService(db, new Catalog(fake, 2580), fake, priorityOn);
+    const r = await svc.upsertDraft(conversationId, input(), null);
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    expect(r.data.lines[0]?.priceSource).toBe("PAYMENT_TYPE");
+  });
+});

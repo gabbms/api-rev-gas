@@ -43,6 +43,13 @@
       "when": 1795219842324,
       "tag": "0005_curious_hitman",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795296097859,
+      "tag": "0006_polite_stepford_cuckoos",
+      "breakpoints": true
     }
   ]
 }

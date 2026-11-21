@@ -1,0 +1,1 @@
+ALTER TABLE "customer_profiles" ADD COLUMN "revgas_tag_id" bigint;

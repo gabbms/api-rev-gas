@@ -12,6 +12,7 @@ import {
   saleSchema,
   type RevgasClient,
   type RevgasCustomer,
+  type DealFilter,
   type RevgasDeal,
   type RevgasErrorKind,
   type RevgasProduct,
@@ -57,12 +58,18 @@ export class HttpRevgasClient implements RevgasClient {
   }
 
   async listDeals(establishmentId: number): Promise<RevgasDeal[]> {
+    return this.dealPages(`establishment_id=${establishmentId}&customer_isnull=true&tag_isnull=true`);
+  }
+
+  async listDealsBy(establishmentId: number, filter: DealFilter): Promise<RevgasDeal[]> {
+    const by = "customerId" in filter ? `customer_id=${filter.customerId}` : `tag_id=${filter.tagId}`;
+    return this.dealPages(`establishment_id=${establishmentId}&${by}`);
+  }
+
+  private async dealPages(query: string): Promise<RevgasDeal[]> {
     const all: RevgasDeal[] = [];
     for (let page = 1; ; page++) {
-      const body = await this.request(
-        "GET",
-        `/deals?establishment_id=${establishmentId}&customer_isnull=true&tag_isnull=true&page=${page}&page_size=100`,
-      );
+      const body = await this.request("GET", `/deals?${query}&page=${page}&page_size=100`);
       const parsed = this.parse(dealPageSchema, body);
       all.push(...parsed.data);
       if (!parsed.pagination?.has_next) return all;
@@ -182,6 +189,7 @@ export function createRevgasClient(cfg: AppConfig, db: Db, fetchFn: typeof fetch
     findCustomersByPhone: (phone) => http.findCustomersByPhone(phone),
     listProducts: (id) => http.listProducts(id),
     listDeals: (id) => http.listDeals(id),
+    listDealsBy: (id, filter) => http.listDealsBy(id, filter),
     createSale: async (payload) => {
       console.info("[revgas] escrita desligada: venda simulada");
       return simulated.create(payload);

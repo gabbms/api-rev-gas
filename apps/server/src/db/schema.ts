@@ -44,6 +44,8 @@ export const customerProfiles = pgTable("customer_profiles", {
   /** Empty cylinders the customer swapped on the last sale. */
   emptyCylinders: integer("empty_cylinders"),
   revgasCustomerId: bigint("revgas_customer_id", { mode: "number" }),
+  /** RevGás customer category (tag_id), for TAG price deals. */
+  revgasTagId: bigint("revgas_tag_id", { mode: "number" }),
   lastSaleId: bigint("last_sale_id", { mode: "number" }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),

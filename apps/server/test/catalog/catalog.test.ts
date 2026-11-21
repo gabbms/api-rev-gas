@@ -43,8 +43,14 @@ describe("Catalog (C2: prices from /deals)", () => {
   it("lists active products of the establishment that have a deal, priced per payment type", async () => {
     const catalog = new Catalog(fake, 2580, { ttlMs: 1000, now });
     expect(await catalog.list()).toEqual([
-      { productId: 23740, description: "GLP 13KG", containerId: 23741, pricesCents: { PIX: 15000, MONEY: 15000, CARTAO_DE_CREDITO: 15500 } },
-      { productId: 23741, description: "VASILHAME 13KG", containerId: null, pricesCents: { PIX: 1000 } },
+      {
+        productId: 23740,
+        description: "GLP 13KG",
+        containerId: 23741,
+        pricesCents: { PIX: 15000, MONEY: 15000, CARTAO_DE_CREDITO: 15500 },
+        priceSources: { PIX: "PAYMENT_TYPE", MONEY: "PAYMENT_TYPE", CARTAO_DE_CREDITO: "PAYMENT_TYPE" },
+      },
+      { productId: 23741, description: "VASILHAME 13KG", containerId: null, pricesCents: { PIX: 1000 }, priceSources: { PIX: "PAYMENT_TYPE" } },
     ]);
   });
 
@@ -174,5 +180,71 @@ describe("Catalog — Vale Gás enabled", () => {
     fake.deals.push(deal(23741, "VALEGAS", 10));
     const catalog = new Catalog(fake, 2580, { ttlMs: 1000, now, acceptedPayments: acceptedPaymentTypes(true) });
     expect((await catalog.get(23741))?.pricesCents).toEqual({ PIX: 1000, VALEGAS: 1000 });
+  });
+});
+
+describe("Catalog — price priority (CUSTOMER > TAG > PAYMENT_TYPE)", () => {
+  const maria = { customerId: 77, tagId: 5 };
+
+  beforeEach(() => {
+    fake.deals.push(
+      deal(23740, "PIX", 140, { type: "CUSTOMER", customer_id: 77 }),
+      deal(23740, "MONEY", 145, { type: "TAG", tag_id: 5 }),
+      deal(23740, "PIX", 130, { type: "TAG", tag_id: 5 }),
+      deal(23741, "PIX", 8, { type: "TAG", tag_id: 5 }),
+      deal(23740, "PIX", 1, { type: "CUSTOMER", customer_id: 99 }),
+      deal(23740, "PIX", 2, { type: "TAG", tag_id: 6 }),
+    );
+  });
+
+  it("uses the customer deal, then the category deal, then the general deal, and records the source", async () => {
+    const catalog = new Catalog(fake, 2580, { ttlMs: 1000, now });
+    const gas = await catalog.get(23740, maria);
+    expect(gas?.pricesCents).toEqual({ PIX: 14000, MONEY: 14500, CARTAO_DE_CREDITO: 15500 });
+    expect(gas?.priceSources).toEqual({ PIX: "CUSTOMER", MONEY: "TAG", CARTAO_DE_CREDITO: "PAYMENT_TYPE" });
+    expect((await catalog.get(23741, maria))?.priceSources).toEqual({ PIX: "TAG" });
+  });
+
+  it("uses the category without a customer deal, and only the general deals for a customer without category", async () => {
+    const catalog = new Catalog(fake, 2580, { ttlMs: 1000, now });
+    expect((await catalog.get(23740, { customerId: 50, tagId: 5 }))?.pricesCents.PIX).toBe(13000);
+    expect((await catalog.get(23740, { customerId: 50, tagId: null }))?.priceSources?.PIX).toBe("PAYMENT_TYPE");
+  });
+
+  it("is unchanged without a customer", async () => {
+    const catalog = new Catalog(fake, 2580, { ttlMs: 1000, now });
+    const gas = await catalog.get(23740);
+    expect(gas?.pricesCents.PIX).toBe(15000);
+    expect(gas?.priceSources).toEqual({ PIX: "PAYMENT_TYPE", MONEY: "PAYMENT_TYPE", CARTAO_DE_CREDITO: "PAYMENT_TYPE" });
+  });
+
+  it("offers a product that only has a deal for this customer", async () => {
+    fake.products.push({ id: 24141, description: "AGUA 10L", inactive: false, establishment_id: 2580 });
+    fake.deals.push(deal(24141, "PIX", 15, { type: "CUSTOMER", customer_id: 77 }));
+    const catalog = new Catalog(fake, 2580, { ttlMs: 1000, now });
+    expect(await catalog.get(24141)).toBeNull();
+    expect((await catalog.get(24141, maria))?.pricesCents).toEqual({ PIX: 1500 });
+  });
+
+  it("caches deals per customer and per category, and refetches after the TTL", async () => {
+    const by = vi.spyOn(fake, "listDealsBy");
+    const catalog = new Catalog(fake, 2580, { ttlMs: 1000, now });
+    await catalog.list(maria);
+    await catalog.list(maria);
+    expect(by).toHaveBeenCalledTimes(2); // customer + tag, once each
+    await catalog.list({ customerId: 50, tagId: 5 });
+    expect(by).toHaveBeenCalledTimes(3); // new customer; tag 5 cached
+    t = 1000;
+    await catalog.list(maria);
+    expect(by).toHaveBeenCalledTimes(5);
+  });
+
+  it("falls back to the general prices and logs when the customer deals cannot be read", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.spyOn(fake, "listDealsBy").mockRejectedValue(new Error("403"));
+    const catalog = new Catalog(fake, 2580, { ttlMs: 1000, now });
+    expect((await catalog.get(23740, maria))?.priceSources?.PIX).toBe("PAYMENT_TYPE");
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
   });
 });

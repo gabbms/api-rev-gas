@@ -2,7 +2,7 @@ import { and, desc, eq, gt, isNotNull, lte, sql } from "drizzle-orm";
 import type { Catalog } from "../catalog/catalog.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/client.js";
-import { saveProfileFromSale } from "../customers/customerProfiles.js";
+import { pricingCustomer, saveProfileFromSale } from "../customers/customerProfiles.js";
 import { conversations, messages, orderDrafts } from "../db/schema.js";
 import { RevgasError, type RevgasClient, type RevgasSale } from "../revgas/types.js";
 import { buildDraft, toSalePayload, type DraftData, type DraftInput, type DraftResult } from "./draft.js";
@@ -37,7 +37,9 @@ export class OrderService {
     input: DraftInput,
     customerId: number | null,
   ): Promise<DraftResult & { draftId?: string }> {
-    const result = buildDraft(input, await this.catalog.list(), customerId, this.cfg.maxItemQuantity);
+    // REVGAS_PRICE_PRIORITY: the Catalog decides customer > category > general for an identified customer.
+    const products = await this.catalog.list(await pricingCustomer(this.db, this.cfg, customerId));
+    const result = buildDraft(input, products, customerId, this.cfg.maxItemQuantity);
     if (!result.ok) return result;
 
     const values = {

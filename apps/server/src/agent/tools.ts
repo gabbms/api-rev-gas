@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { referencePriceCents, type Catalog, type PriceTable } from "../catalog/catalog.js";
 import type { AppConfig } from "../config.js";
-import { getProfile, hasAddress, setRevgasCustomerId } from "../customers/customerProfiles.js";
+import { getProfile, hasAddress, pricingCustomer, setRevgasCustomerId } from "../customers/customerProfiles.js";
 import type { Db } from "../db/client.js";
 import { conversations } from "../db/schema.js";
 import { PAYMENT_LABELS, formatCents } from "../orders/draft.js";
@@ -215,7 +215,7 @@ export async function runTool(name: string, input: unknown, ctx: ToolContext, de
     case "listar_produtos": {
       const parsed = emptyInput.safeParse(input);
       if (!parsed.success) return invalid(parsed.error);
-      return listarProdutos(deps);
+      return listarProdutos(ctx, deps);
     }
     case "montar_pedido": {
       const parsed = montarPedidoInputFor(deps.cfg.revgasValegasEnabled).safeParse(input);
@@ -274,8 +274,8 @@ export async function runTool(name: string, input: unknown, ctx: ToolContext, de
   return fail(`Ferramenta desconhecida: ${name}`);
 }
 
-async function listarProdutos(deps: AgentDeps): Promise<ToolResult> {
-  const products = await deps.catalog.list();
+async function listarProdutos(ctx: ToolContext, deps: AgentDeps): Promise<ToolResult> {
+  const products = await deps.catalog.list(await pricingCustomer(deps.db, deps.cfg, ctx.customerId));
   const byId = new Map(products.map((p) => [p.productId, p]));
   const ref = (prices: PriceTable) => {
     const cents = referencePriceCents(prices);
@@ -315,7 +315,7 @@ async function buscarCliente(ctx: ToolContext, deps: AgentDeps): Promise<ToolRes
           .update(conversations)
           .set({ revgasCustomerId: c.id, updatedAt: new Date() })
           .where(eq(conversations.id, ctx.conversationId));
-        await setRevgasCustomerId(deps.db, ctx.phone, c.id);
+        await setRevgasCustomerId(deps.db, ctx.phone, c.id, c.tag_id ?? null);
       } else if (found.length > 1) {
         revgasNote =
           `Há ${found.length} cadastros na RevGás com este telefone: ${found.map((c) => c.name).join(", ")}. ` +

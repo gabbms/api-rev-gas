@@ -1,4 +1,4 @@
-import type { SellableProduct } from "../catalog/catalog.js";
+import type { PriceSource, SellableProduct } from "../catalog/catalog.js";
 import type { PaymentType, SalePayload } from "../revgas/types.js";
 
 export type DraftAddress = {
@@ -26,7 +26,15 @@ export type DraftInput = {
   customerName?: string;
 };
 
-export type DraftLine = { productId: number; description: string; quantity: number; unitCents: number; totalCents: number };
+export type DraftLine = {
+  productId: number;
+  description: string;
+  quantity: number;
+  unitCents: number;
+  totalCents: number;
+  /** Kind of deal the unit price came from. */
+  priceSource: PriceSource;
+};
 
 export type DraftData = DraftInput & { lines: DraftLine[]; totalCents: number; customerId: number | null };
 
@@ -135,7 +143,8 @@ export function buildDraft(
       continue;
     }
     const unitCents = [...prices][0]!;
-    lines.push({ productId, description: product.description, quantity, unitCents, totalCents: unitCents * quantity });
+    const priceSource = product.priceSources?.[paymentTypes[0]!] ?? "PAYMENT_TYPE";
+    lines.push({ productId, description: product.description, quantity, unitCents, totalCents: unitCents * quantity, priceSource });
   }
 
   const address: DraftAddress = {

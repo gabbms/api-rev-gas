@@ -225,3 +225,28 @@ describe("corrections from the API survey", () => {
   });
 });
 
+
+describe("price priority reads", () => {
+  it("lists a customer's deals and a category's deals by filter, across pages", async () => {
+    const d = (id: number, over: Record<string, unknown>) => ({
+      id, product_id: 23740, payment_type: "PIX", suggested_value: 140, type: "CUSTOMER", is_default: false, ...over,
+    });
+    const f = fakeFetch(
+      json(200, { data: [d(1, { customer_id: 77 })], pagination: { has_next: true } }),
+      json(200, { data: [d(2, { customer_id: 77 })], pagination: { has_next: false } }),
+      json(200, { data: [d(3, { type: "TAG", tag_id: 5 })], pagination: { has_next: false } }),
+    );
+    const c = client(f.fn);
+    const byCustomer = await c.listDealsBy(2580, { customerId: 77 });
+    expect(byCustomer.map((x) => [x.id, x.customer_id])).toEqual([[1, 77], [2, 77]]);
+    expect(f.calls[0]!.url).toBe("https://api.revgas.com/v1/deals?establishment_id=2580&customer_id=77&page=1&page_size=100");
+    const byTag = await c.listDealsBy(2580, { tagId: 5 });
+    expect(byTag[0]).toMatchObject({ id: 3, type: "TAG", tag_id: 5 });
+    expect(f.calls[2]!.url).toBe("https://api.revgas.com/v1/deals?establishment_id=2580&tag_id=5&page=1&page_size=100");
+  });
+
+  it("reads the customer's category (tag_id)", async () => {
+    const f = fakeFetch(json(200, { data: [{ id: 7, name: "Maria", tag_id: 5 }] }));
+    expect((await client(f.fn).findCustomersByPhone("86999998888"))[0]?.tag_id).toBe(5);
+  });
+});

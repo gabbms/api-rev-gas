@@ -26,8 +26,10 @@ export const customerSchema = z.object({
   state_federation: nullableText,
   complement: nullableText,
   landmark: nullableText,
+  /** Customer category, used for TAG price deals. */
+  tag_id: z.number().nullish().transform((v) => v ?? null),
 });
-export type RevgasCustomer = z.infer<typeof customerSchema>;
+export type RevgasCustomer = Omit<z.infer<typeof customerSchema>, "tag_id"> & { tag_id?: number | null };
 
 export const productSchema = z.object({
   id: z.number(),
@@ -58,8 +60,15 @@ export const dealSchema = z.object({
   minimum_value: decimal.nullish(),
   type: z.string(),
   is_default: z.boolean().nullish().transform((v) => v ?? false),
+  customer_id: z.number().nullish().transform((v) => v ?? null),
+  tag_id: z.number().nullish().transform((v) => v ?? null),
 });
-export type RevgasDeal = z.output<typeof dealSchema>;
+export type RevgasDeal = Omit<z.output<typeof dealSchema>, "customer_id" | "tag_id"> & {
+  customer_id?: number | null;
+  tag_id?: number | null;
+};
+
+export type DealFilter = { customerId: number } | { tagId: number };
 
 export const dealPageSchema = z.object({
   data: z.array(dealSchema),
@@ -117,6 +126,8 @@ export interface RevgasClient {
   listProducts(establishmentId: number): Promise<RevgasProduct[]>;
   /** Deals without customer or tag (general price per payment type), every page. */
   listDeals(establishmentId: number): Promise<RevgasDeal[]>;
+  /** Deals of one customer (CUSTOMER) or one customer category (TAG), every page. */
+  listDealsBy(establishmentId: number, filter: DealFilter): Promise<RevgasDeal[]>;
   createSale(payload: SalePayload): Promise<RevgasSale>;
   getSale(id: number): Promise<RevgasSale>;
 }

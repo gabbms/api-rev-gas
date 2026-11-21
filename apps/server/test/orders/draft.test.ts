@@ -54,7 +54,9 @@ describe("buildDraft", () => {
   it("totals 22000 cents for 2x of 11000", () => {
     const r = ok(buildDraft(input({ items: [{ productId: GAS, quantity: 2 }] }), products, 7, 10));
     expect(r.data.totalCents).toBe(22000);
-    expect(r.data.lines).toEqual([{ productId: GAS, description: "GLP 13KG", quantity: 2, unitCents: 11000, totalCents: 22000 }]);
+    expect(r.data.lines).toEqual([
+      { productId: GAS, description: "GLP 13KG", quantity: 2, unitCents: 11000, totalCents: 22000, priceSource: "PAYMENT_TYPE" },
+    ]);
     expect(r.data.customerId).toBe(7);
     expect(r.data.payments).toEqual([{ type: "PIX", amountCents: 22000 }]);
   });
@@ -316,5 +318,23 @@ describe("buildDraft — Vale Gás coupon", () => {
   it("does not send serial for other payment types", () => {
     const r = ok(buildDraft(input(), withVg, null, 10));
     expect(toSalePayload(r.data, 2580, "NONE").payments[0]).not.toHaveProperty("serial");
+  });
+});
+
+describe("buildDraft — price source", () => {
+  it("records on each line which kind of deal its price came from", () => {
+    const priced: SellableProduct[] = [
+      { ...products[0]!, pricesCents: { PIX: 10500 }, priceSources: { PIX: "CUSTOMER" } },
+      { ...products[1]!, pricesCents: { PIX: 900 }, priceSources: { PIX: "TAG" } },
+    ];
+    const r = ok(buildDraft(input({ emptyCylinders: 0 }), priced, 77, 10));
+    expect(r.data.lines.map((l) => [l.productId, l.unitCents, l.priceSource])).toEqual([
+      [GAS, 10500, "CUSTOMER"],
+      [CYLINDER, 900, "TAG"],
+    ]);
+  });
+
+  it("defaults to the general deal", () => {
+    expect(ok(buildDraft(input(), products, null, 10)).data.lines[0]?.priceSource).toBe("PAYMENT_TYPE");
   });
 });

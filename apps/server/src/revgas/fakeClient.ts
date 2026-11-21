@@ -3,6 +3,7 @@ import {
   RevgasError,
   type RevgasClient,
   type RevgasCustomer,
+  type DealFilter,
   type RevgasDeal,
   type RevgasProduct,
   type RevgasSale,
@@ -33,6 +34,10 @@ export class FakeRevgasClient implements RevgasClient {
 
   async listDeals(_establishmentId: number): Promise<RevgasDeal[]> {
     return this.deals;
+  }
+
+  async listDealsBy(_establishmentId: number, filter: DealFilter): Promise<RevgasDeal[]> {
+    return this.deals.filter((d) => ("customerId" in filter ? d.customer_id === filter.customerId : d.tag_id === filter.tagId));
   }
 
   async createSale(payload: SalePayload): Promise<RevgasSale> {
