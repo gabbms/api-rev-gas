@@ -26,18 +26,29 @@ export function referencePriceCents(prices: PriceTable): number | null {
  * general price agreement (deal of type PAYMENT_TYPE) for a payment type the bot accepts.
  * The price source lives only here.
  */
+export type CatalogOptions = {
+  ttlMs?: number;
+  now?: () => number;
+  /** REVGAS_PRODUCT_IDS: offer only these products and their cylinders. */
+  productIds?: number[] | null;
+};
+
 export class Catalog {
   private cache: { at: number; items: SellableProduct[] } | null = null;
   private loading: Promise<SellableProduct[]> | null = null;
+  private readonly ttlMs: number;
+  private readonly now: () => number;
+  private readonly productIds: number[] | null;
 
   constructor(
     private readonly client: RevgasClient,
     private readonly establishmentId: number,
-    private readonly ttlMs = 30 * 60_000,
-    private readonly now: () => number = Date.now,
-    /** REVGAS_PRODUCT_IDS: offer only these products and their cylinders. */
-    private readonly productIds: number[] | null = null,
-  ) {}
+    opts: CatalogOptions = {},
+  ) {
+    this.ttlMs = opts.ttlMs ?? 30 * 60_000;
+    this.now = opts.now ?? Date.now;
+    this.productIds = opts.productIds ?? null;
+  }
 
   /**
    * Stale-while-revalidate: after the TTL the old list is returned at once and a reload runs in
