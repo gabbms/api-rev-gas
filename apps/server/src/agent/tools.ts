@@ -223,7 +223,7 @@ export async function runTool(name: string, input: unknown, ctx: ToolContext, de
       const result = await deps.orders.upsertDraft(ctx.conversationId, parsed.data, ctx.customerId);
       if (!result.ok) return fail(`Pedido não pôde ser montado: ${result.errors.join("; ")}`);
       ctx.events.draftPresentable = { draftId: result.draftId!, summaryText: result.summaryText };
-      return ok("Resumo gerado; o sistema vai enviá-lo ao cliente. Não repita preços.");
+      return ok(`Resumo gerado (total ${formatCents(result.data.totalCents)}); o sistema vai enviá-lo ao cliente. Não repita preços.`);
     }
     case "confirmar_pedido": {
       const parsed = emptyInput.safeParse(input);

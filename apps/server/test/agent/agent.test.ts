@@ -406,6 +406,11 @@ describe("tools", () => {
     expect(c.events.draftPresentable?.summaryText).not.toContain("VASILHAME");
   });
 
+  it("montar_pedido reports the total in its result (shown in the attendant's trace)", async () => {
+    const r = await runTool("montar_pedido", { ...orderInput, emptyCylinders: 0 }, ctx(), deps(scriptedAnthropic()));
+    expect(r.content).toContain("Resumo gerado (total R$ 120,00)");
+  });
+
   it("montar_pedido (C3) adds the cylinder when the customer has none to swap", async () => {
     const c = ctx();
     await runTool("montar_pedido", { ...orderInput, emptyCylinders: 0 }, c, deps(scriptedAnthropic()));

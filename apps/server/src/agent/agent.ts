@@ -51,8 +51,8 @@ export async function appendContextTurn(db: Db, conversationId: string, text: st
     .orderBy(desc(llmTurns.id))
     .limit(1);
   const closing = pendingToolResults(last);
-  if (closing) await db.insert(llmTurns).values({ conversationId, role: "user", content: closing });
-  await db.insert(llmTurns).values({ conversationId, role: "user", content: [{ type: "text", text }] });
+  if (closing) await db.insert(llmTurns).values({ conversationId, role: "user", content: closing, createdAt: new Date() });
+  await db.insert(llmTurns).values({ conversationId, role: "user", content: [{ type: "text", text }], createdAt: new Date() });
 }
 
 /**
@@ -72,7 +72,7 @@ export async function runAgentTurn(
   const messages = history.map((t) => ({ role: t.role, content: t.content }) as MessageParam);
 
   const append = async (role: "user" | "assistant", content: unknown) => {
-    await deps.db.insert(llmTurns).values({ conversationId: ctx.conversationId, role, content });
+    await deps.db.insert(llmTurns).values({ conversationId: ctx.conversationId, role, content, createdAt: new Date() }); // app clock, same as messages
     messages.push({ role, content } as MessageParam);
   };
 

@@ -52,3 +52,10 @@ export const metricsSchema = z.object({
   avgTimeToOrderMs: z.number().nullable(),
 });
 export type Metrics = z.infer<typeof metricsSchema>;
+
+// GET /conversations/:id/trace — what the AI did, for the attendant (no thinking, no raw content)
+export const traceItemSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("message"), author: z.string(), text: z.string(), at: z.string() }),
+  z.object({ kind: z.literal("tool"), name: z.string(), summary: z.string(), isError: z.boolean(), at: z.string() }),
+]);
+export type TraceItem = z.infer<typeof traceItemSchema>;

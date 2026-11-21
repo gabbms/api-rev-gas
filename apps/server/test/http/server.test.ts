@@ -6,6 +6,7 @@ import { Catalog } from "../../src/catalog/catalog.js";
 import { loadConfig } from "../../src/config.js";
 import { ConversationService, type RunTurn } from "../../src/conversations/conversationService.js";
 import type { Db } from "../../src/db/client.js";
+import { conversations, llmTurns } from "../../src/db/schema.js";
 import { Hub, buildServer } from "../../src/http/server.js";
 import { OrderService } from "../../src/orders/orderService.js";
 import { FakeRevgasClient } from "../../src/revgas/fakeClient.js";
@@ -120,6 +121,20 @@ describe("HTTP server", () => {
     expect(body).toMatchObject({ simulated: true, conversations: 1, sales: { count: 0 } });
     expect(body.from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(typeof body.avgBotResponseMs).toBe("number");
+    seen.push(res.body);
+  });
+
+  it("serves the trace of a conversation without thinking blocks", async () => {
+    const [c] = await db.insert(conversations).values({ phone: "86999998888" }).returning();
+    await db.insert(llmTurns).values([
+      { conversationId: c!.id, role: "assistant", content: [{ type: "thinking", thinking: "raciocínio privado", signature: "s" }, { type: "tool_use", id: "a", name: "listar_produtos", input: {} }] },
+      { conversationId: c!.id, role: "user", content: [{ type: "tool_result", tool_use_id: "a", content: JSON.stringify({ produtos: [1, 2] }) }] },
+    ]);
+    const res = await app.inject({ method: "GET", url: `/conversations/${c!.id}/trace` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().items).toEqual([{ kind: "tool", name: "listar_produtos", summary: "2 produtos", isError: false, at: expect.any(String) }]);
+    expect(res.body).not.toContain("raciocínio privado");
+    expect((await app.inject({ method: "GET", url: "/conversations/x/trace" })).statusCode).toBe(400);
     seen.push(res.body);
   });
 

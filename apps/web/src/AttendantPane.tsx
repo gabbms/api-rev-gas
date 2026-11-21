@@ -1,4 +1,4 @@
-import type { ConversationSummary, HistoryItem } from "@revgas/shared";
+import { traceItemSchema, type ConversationSummary, type HistoryItem, type TraceItem } from "@revgas/shared";
 import { useEffect, useState, type FormEvent } from "react";
 import { MessageText, time } from "./MessageText";
 import { connection, formatPhone } from "./ws";
@@ -9,6 +9,8 @@ export function AttendantPane({ conversations, version }: { conversations: Conve
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [reply, setReply] = useState("");
+  const [showTrace, setShowTrace] = useState(false);
+  const [trace, setTrace] = useState<TraceItem[]>([]);
   const selected = conversations.find((c) => c.id === selectedId) ?? null;
 
   // Every change on the server bumps `version`; refetch the open conversation.
@@ -22,6 +24,18 @@ export function AttendantPane({ conversations, version }: { conversations: Conve
       alive = false;
     };
   }, [selectedId, version]);
+
+  // "Bastidores": the tools the AI called, interleaved with the messages.
+  useEffect(() => {
+    if (!selectedId || !showTrace) return;
+    let alive = true;
+    void fetch(`/conversations/${selectedId}/trace`)
+      .then((r) => r.json() as Promise<{ items: unknown[] }>)
+      .then((body) => alive && setTrace(body.items.map((i) => traceItemSchema.parse(i))));
+    return () => {
+      alive = false;
+    };
+  }, [selectedId, version, showTrace]);
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -71,6 +85,9 @@ export function AttendantPane({ conversations, version }: { conversations: Conve
             <>
               <div className="detail-head">
                 <strong>{formatPhone(selected.phone)}</strong>
+                <button className="ghost small" aria-pressed={showTrace} onClick={() => setShowTrace((v) => !v)}>
+                  {showTrace ? "Ocultar bastidores" : "Ver bastidores"}
+                </button>
                 {selected.mode === "human" ? (
                   <button className="ghost" onClick={() => connection.send({ type: "return_to_bot", conversationId: selected.id })}>
                     Devolver ao bot
@@ -80,7 +97,27 @@ export function AttendantPane({ conversations, version }: { conversations: Conve
                 )}
               </div>
               <ol className="log">
-                {history.map((m, i) => (
+                {showTrace &&
+                  trace.map((item, i) =>
+                    item.kind === "message" ? (
+                      <li key={i} className={`log-${item.author}`}>
+                        <span className="log-who">{AUTHOR_LABEL[item.author] ?? item.author}</span>
+                        <span className="log-text">
+                          <MessageText text={item.text} />
+                        </span>
+                        <time>{time(item.at)}</time>
+                      </li>
+                    ) : (
+                      <li key={i} className={`log-tool ${item.isError ? "failed" : ""}`}>
+                        <span className="log-who">IA</span>
+                        <span className="log-text">
+                          <code>{item.name}</code> {item.summary}
+                        </span>
+                        <time>{time(item.at)}</time>
+                      </li>
+                    ),
+                  )}
+                {!showTrace && history.map((m, i) => (
                   <li key={i} className={`log-${m.author}`}>
                     <span className="log-who">{AUTHOR_LABEL[m.author] ?? m.author}</span>
                     <span className="log-text">

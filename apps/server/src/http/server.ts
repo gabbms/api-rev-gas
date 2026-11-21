@@ -6,6 +6,7 @@ import type { AppConfig } from "../config.js";
 import type { ConversationService, Outgoing } from "../conversations/conversationService.js";
 import type { Db } from "../db/client.js";
 import { computeMetrics, parseRange } from "../metrics/metrics.js";
+import { buildTrace } from "../conversations/trace.js";
 
 type Socket = { send(data: string): void; readyState: number; OPEN: number };
 
@@ -107,6 +108,14 @@ export async function buildServer(deps: {
     if (!params.success) return reply.code(400).send({ error: "id inválido" });
     const items = await conversations.history(params.data.id);
     return { items: items.map((m) => ({ ...m, createdAt: m.createdAt.toISOString() })) };
+  });
+
+  // What the AI did (tools and short results), for the attendant. No thinking, no raw content.
+  app.get("/conversations/:id/trace", async (req, reply) => {
+    const params = idParams.safeParse(req.params);
+    if (!params.success) return reply.code(400).send({ error: "id inválido" });
+    const items = await buildTrace(db, params.data.id);
+    return { items: items.map((i) => ({ ...i, at: i.at.toISOString() })) };
   });
 
   app.get("/ws", { websocket: true }, (socket) => {
