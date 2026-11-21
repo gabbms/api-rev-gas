@@ -236,12 +236,55 @@ describe("runAgentTurn", () => {
     expect(req.max_tokens).toBe(16000);
     expect(req.output_config).toEqual({ effort: "medium" });
     expect(req.fallbacks).toBe("default");
-    expect(req.betas).toEqual(["server-side-fallback-2026-07-01"]);
+    expect(req.betas).toEqual(["server-side-fallback-2026-07-01", "thinking-binding-controls-2026-08-01"]);
     expect(req.tool_choice === undefined || (req.tool_choice as { type: string }).type === "auto").toBe(true);
     expect(req).not.toHaveProperty("temperature");
-    expect(req).not.toHaveProperty("thinking");
+    // Exactly this shape: adaptive only, no budget_tokens, no display, never disabled.
+    expect(req.thinking).toStrictEqual({ type: "adaptive", block_binding: { prefix_mismatch_behavior: "drop_block" } });
     expect(typeof req.system).toBe("string");
     expect(req.tools).toEqual(toolDefinitions);
+  });
+
+  it("sends drop_block on every request of a multi-step turn (it applies per request)", async () => {
+    await runAgentTurn(
+      ctx(),
+      "oi",
+      deps(scriptedAnthropic(reply([toolUse("t1", "listar_produtos", {})], "tool_use"), reply([text("Olá")], "end_turn"))),
+    );
+    expect(requests).toHaveLength(2);
+    for (const req of requests) {
+      expect(req.thinking).toStrictEqual({ type: "adaptive", block_binding: { prefix_mismatch_behavior: "drop_block" } });
+      expect(req.betas).toContain("thinking-binding-controls-2026-08-01");
+    }
+  });
+
+  it("logs dropped thinking blocks: conversation, count and reason, never the content", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const r = reply([text("Claro!")], "end_turn") as unknown as Record<string, unknown>;
+    r.input_transformations = [
+      { type: "thinking_dropped", path: "messages.7.content.0", reason: "prefix_binding_mismatch" },
+      { type: "thinking_dropped", path: "messages.9.content.0", reason: "prefix_binding_mismatch" },
+      { type: "some_future_type", secret: "conteúdo-que-não-pode-vazar" },
+    ];
+    await runAgentTurn(ctx(), "quero gás", deps(scriptedAnthropic(r as unknown as Anthropic.Beta.BetaMessage)));
+    const lines = warn.mock.calls.map((c) => c.join(" "));
+    const line = lines.find((l) => l.includes("descartad"));
+    expect(line).toBeDefined();
+    expect(line).toContain(conversationId);
+    expect(line).toContain("2");
+    expect(line).toContain("prefix_binding_mismatch");
+    expect(lines.join(" ")).not.toContain("some_future_type");
+    expect(lines.join(" ")).not.toContain("conteúdo-que-não-pode-vazar");
+    warn.mockRestore();
+  });
+
+  it("logs nothing when input_transformations is empty", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const r = reply([text("Olá")], "end_turn") as unknown as Record<string, unknown>;
+    r.input_transformations = [];
+    await runAgentTurn(ctx(), "oi", deps(scriptedAnthropic(r as unknown as Anthropic.Beta.BetaMessage)));
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
 

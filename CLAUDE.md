@@ -68,8 +68,11 @@ reais do token, decisões C1–C8). Campos e enums: `docs/revgas-openapi.yaml` �
 
 - `client.beta.messages.create` com `model: ANTHROPIC_MODEL` (padrão `claude-opus-5-5`),
   `max_tokens: 16000`, `output_config: { effort: ANTHROPIC_EFFORT }` (padrão `medium`),
-  `betas: ["server-side-fallback-2026-07-01"]`, `fallbacks: "default"`.
-- Não enviar `thinking`, `temperature`, nem `tool_choice` `any`/`tool` (400 no Opus 5.5).
+  `betas: ["server-side-fallback-2026-07-01", "thinking-binding-controls-2026-08-01"]`, `fallbacks: "default"`.
+- `thinking` só com `type: "adaptive"` e `block_binding.prefix_mismatch_behavior: "drop_block"`, em toda
+  requisição; nunca `budget_tokens` nem `disabled`. Motivo: mudar ferramenta ou prompt invalida o raciocínio
+  gravado, e sem o `drop_block` a API recusa a conversa inteira. Os descartes vêm em `input_transformations`.
+- Não enviar `temperature` nem `tool_choice` `any`/`tool` (400 no Opus 5.5).
 - Ferramentas com `strict: true` + validação Zod do `input`. Checar `stop_reason === "refusal"`.
 - Em dúvida sobre o SDK, use a skill `claude-api` em vez de adivinhar.
 

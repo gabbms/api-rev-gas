@@ -23,6 +23,22 @@ function pendingToolResults(last: { role: string; content?: unknown } | undefine
   return pending.map((b) => ({ type: "tool_result", tool_use_id: b.id!, content: "Execução interrompida", is_error: true }));
 }
 
+/** Logs which stored thinking blocks the API dropped (or accepted despite a mismatch). Never content. */
+function logInputTransformations(
+  conversationId: string,
+  transformations: Anthropic.Beta.BetaInputTransformation[] | null | undefined,
+): void {
+  if (!transformations?.length) return;
+  const known = { thinking_dropped: "descartado(s)", thinking_mismatch_allowed: "aceito(s) com divergência" } as const;
+  for (const [type, label] of Object.entries(known)) {
+    const reasons = transformations.filter((t) => t.type === type).map((t) => t.reason);
+    if (reasons.length === 0) continue;
+    console.warn(
+      `[agente] conversa ${conversationId}: ${reasons.length} bloco(s) de raciocínio ${label} pela API (${reasons.join(", ")})`,
+    );
+  }
+}
+
 /**
  * Appends a user turn with operator-side context (e.g. what happened with a human attendant),
  * closing any pending tool_use first. Append-only.
@@ -73,9 +89,13 @@ export async function runAgentTurn(
       tools: toolDefinitions,
       messages: [...messages],
       output_config: { effort: deps.cfg.anthropicEffort },
-      betas: ["server-side-fallback-2026-07-01"],
+      // Stored thinking is bound to the exact prompt and tools it was made with; after a tool or
+      // prompt change the API drops those blocks instead of rejecting the request. Per request.
+      thinking: { type: "adaptive", block_binding: { prefix_mismatch_behavior: "drop_block" } },
+      betas: ["server-side-fallback-2026-07-01", "thinking-binding-controls-2026-08-01"],
       fallbacks: "default",
     });
+    logInputTransformations(ctx.conversationId, response.input_transformations);
 
     // Checked before reading content. A refused turn is not stored; the next customer
     // message simply follows the last stored user turn.
