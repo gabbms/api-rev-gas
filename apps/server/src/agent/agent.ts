@@ -2,8 +2,8 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { asc, desc, eq } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { llmTurns } from "../db/schema.js";
-import { SYSTEM_PROMPT } from "./systemPrompt.js";
-import { runTool, toolDefinitions, type AgentDeps, type ToolContext } from "./tools.js";
+import { systemPromptFor } from "./systemPrompt.js";
+import { runTool, toolDefinitionsFor, type AgentDeps, type ToolContext } from "./tools.js";
 
 export type { AgentDeps, ToolContext } from "./tools.js";
 
@@ -85,8 +85,8 @@ export async function runAgentTurn(
     const response = await deps.anthropic.beta.messages.create({
       model: deps.cfg.anthropicModel,
       max_tokens: 16000,
-      system: SYSTEM_PROMPT,
-      tools: toolDefinitions,
+      system: systemPromptFor(deps.cfg),
+      tools: toolDefinitionsFor(deps.cfg),
       messages: [...messages],
       output_config: { effort: deps.cfg.anthropicEffort },
       // Stored thinking is bound to the exact prompt and tools it was made with; after a tool or

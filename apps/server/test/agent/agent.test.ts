@@ -2,8 +2,8 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { asc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { runAgentTurn, type AgentDeps, type ToolContext } from "../../src/agent/agent.js";
-import { SYSTEM_PROMPT } from "../../src/agent/systemPrompt.js";
-import { runTool, toolDefinitions } from "../../src/agent/tools.js";
+import { SYSTEM_PROMPT, systemPromptFor } from "../../src/agent/systemPrompt.js";
+import { runTool, toolDefinitions, toolDefinitionsFor } from "../../src/agent/tools.js";
 import { Catalog } from "../../src/catalog/catalog.js";
 import { loadConfig } from "../../src/config.js";
 import type { Db } from "../../src/db/client.js";
@@ -12,7 +12,7 @@ import { OrderService } from "../../src/orders/orderService.js";
 import { FakeRevgasClient } from "../../src/revgas/fakeClient.js";
 import { HttpRevgasClient } from "../../src/revgas/httpClient.js";
 import { RateLimiter } from "../../src/revgas/rateLimiter.js";
-import { RevgasError } from "../../src/revgas/types.js";
+import { RevgasError, acceptedPaymentTypes } from "../../src/revgas/types.js";
 import { resetTables, setupTestDb } from "../helpers/testDb.js";
 
 type Block = Anthropic.Beta.BetaContentBlock;
@@ -59,7 +59,7 @@ function scriptedAnthropic(...responses: Anthropic.Beta.BetaMessage[]) {
 function deps(anthropic: Pick<Anthropic, "beta">, over: Partial<AgentDeps> = {}): AgentDeps {
   const revgas = over.revgas ?? fake;
   const c = over.cfg ?? cfg;
-  const catalog = new Catalog(revgas, 2580);
+  const catalog = new Catalog(revgas, 2580, { acceptedPayments: acceptedPaymentTypes(c.revgasValegasEnabled) });
   return { anthropic, orders: new OrderService(db, catalog, revgas, c), catalog, revgas, db, cfg: c, ...over };
 }
 
@@ -466,6 +466,51 @@ describe("tools", () => {
     expect(JSON.stringify(montar.input_schema)).not.toContain("VALEGAS");
     const r = await runTool("montar_pedido", { ...orderInput, payments: [{ type: "VALEGAS" }] }, ctx(), deps(scriptedAnthropic()));
     expect(r.isError).toBe(true);
+  });
+
+  describe("with REVGAS_VALEGAS_ENABLED=true", () => {
+    const vgOn = loadConfig({ DATABASE_URL: "postgres://x", REVGAS_API_KEY: "k", ANTHROPIC_API_KEY: "a", REVGAS_VALEGAS_ENABLED: "true" });
+
+    it("offers VALEGAS and a couponCode per payment in the montar_pedido schema", () => {
+      const montar = toolDefinitionsFor(vgOn).find((t) => t.name === "montar_pedido")!;
+      const payment = (montar.input_schema as any).properties.payments.items;
+      expect(payment.properties.type.enum).toContain("VALEGAS");
+      expect(payment.properties.couponCode.type).toBe("string");
+      expect(payment.additionalProperties).toBe(false);
+    });
+
+    it("keeps today's schema and prompt when the flag is off", () => {
+      expect(toolDefinitionsFor(cfg)).toEqual(toolDefinitions);
+      expect(JSON.stringify(toolDefinitions)).not.toContain("couponCode");
+      expect(systemPromptFor(cfg)).toBe(SYSTEM_PROMPT);
+    });
+
+    it("tells the AI to ask for the coupon code", () => {
+      const prompt = systemPromptFor(vgOn);
+      expect(prompt).toContain("peça o código do cupom");
+      expect(prompt).not.toContain("vale gás ainda não é aceito");
+    });
+
+    it("builds a Vale Gás order with the coupon and masks it in the summary", async () => {
+      fake.deals.push(pixDeal(23740, 110, "VALEGAS"));
+      const c = ctx();
+      const input = { ...orderInput, payments: [{ type: "VALEGAS", couponCode: "55554444" }] };
+      const r = await runTool("montar_pedido", input, c, deps(scriptedAnthropic(), { cfg: vgOn }));
+      expect(r.isError).toBe(false);
+      expect(c.events.draftPresentable?.summaryText).toContain("Vale Gás (cupom final 4444)");
+    });
+
+    it("rejects VALEGAS when the flag is off", async () => {
+      fake.deals.push(pixDeal(23740, 110, "VALEGAS"));
+      const r = await runTool("montar_pedido", { ...orderInput, payments: [{ type: "VALEGAS", couponCode: "1" }] }, ctx(), deps(scriptedAnthropic()));
+      expect(r.isError).toBe(true);
+    });
+
+    it("sends the flag's tools and prompt to the API", async () => {
+      await runAgentTurn(ctx(), "oi", deps(scriptedAnthropic(reply([text("Olá")], "end_turn")), { cfg: vgOn }));
+      expect(requests[0]!.tools).toEqual(toolDefinitionsFor(vgOn));
+      expect(requests[0]!.system).toBe(systemPromptFor(vgOn));
+    });
   });
 
   it("does not offer vale gás in the system prompt and says it is not accepted", () => {

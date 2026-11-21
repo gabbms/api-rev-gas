@@ -280,3 +280,41 @@ describe("toSalePayload", () => {
     expect(toSalePayload(r.data, 2580, "NONE").products[0]?.value).toBe(109.9);
   });
 });
+
+describe("buildDraft — Vale Gás coupon", () => {
+  const withVg: SellableProduct[] = products.map((p) =>
+    p.productId === GAS || p.productId === CYLINDER ? { ...p, pricesCents: { ...p.pricesCents, VALEGAS: p.productId === GAS ? 11000 : 1000 } } : p,
+  );
+
+  it("requires the coupon code when paying with Vale Gás", () => {
+    expect(errors(buildDraft(input({ payments: [{ type: "VALEGAS" }] }), withVg, null, 10)).join(" ")).toMatch(/código do cupom/);
+  });
+
+  it("rejects a coupon code on other payment types", () => {
+    expect(errors(buildDraft(input({ payments: [{ type: "PIX", couponCode: "12345678" }] }), withVg, null, 10)).join(" ")).toMatch(
+      /cupom só vale para Vale Gás/,
+    );
+  });
+
+  it("shows only the last 4 characters of the coupon in the summary", () => {
+    const r = ok(buildDraft(input({ payments: [{ type: "VALEGAS", couponCode: " 9988776655441234 " }] }), withVg, null, 10));
+    expect(r.summaryText).toContain("Pagamento: Vale Gás (cupom final 1234)");
+    expect(r.summaryText).not.toContain("9988776655441234");
+  });
+
+  it("sends the coupon code in payments[].serial", () => {
+    const r = ok(buildDraft(input({ payments: [{ type: "VALEGAS", couponCode: "9988776655441234" }] }), withVg, null, 10));
+    expect(toSalePayload(r.data, 2580, "NONE").payments).toEqual([{ payment_type: "VALEGAS", value: 110, serial: "9988776655441234" }]);
+  });
+
+  it("still requires a Vale Gás deal for the product", () => {
+    expect(errors(buildDraft(input({ items: [{ productId: WATER, quantity: 1 }], payments: [{ type: "VALEGAS", couponCode: "1234" }] }), withVg, null, 10))).toEqual([
+      "AGUA 20L não pode ser pago com Vale Gás",
+    ]);
+  });
+
+  it("does not send serial for other payment types", () => {
+    const r = ok(buildDraft(input(), withVg, null, 10));
+    expect(toSalePayload(r.data, 2580, "NONE").payments[0]).not.toHaveProperty("serial");
+  });
+});

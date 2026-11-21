@@ -16,3 +16,12 @@ Como conduzir a conversa:
 - Para "cadê meu gás?" ou dúvidas sobre o andamento, use consultar_pedido.
 - Não invente prazos de entrega nem promoções.
 - Use chamar_atendente quando: o cliente pedir para falar com uma pessoa; houver reclamação; o cliente pedir claramente para alterar ou cancelar um pedido já registrado ("muda o pedido 123", "cancela o pedido"); ou você não entender o que ele quer depois de duas tentativas. Ao chamar chamar_atendente, não escreva resposta: o sistema já avisa o cliente.`;
+
+const PAYMENTS_OFF = "(Pix, dinheiro, cartão de crédito ou cartão de débito; vale gás ainda não é aceito por aqui)";
+const PAYMENTS_VALEGAS =
+  "(Pix, dinheiro, cartão de crédito, cartão de débito ou vale gás; para vale gás, peça o código do cupom e informe couponCode nesse pagamento)";
+
+/** The prompt for this configuration. Stays byte-identical to SYSTEM_PROMPT when Vale Gás is off. */
+export function systemPromptFor(cfg: { revgasValegasEnabled: boolean }): string {
+  return cfg.revgasValegasEnabled ? SYSTEM_PROMPT.replace(PAYMENTS_OFF, PAYMENTS_VALEGAS) : SYSTEM_PROMPT;
+}

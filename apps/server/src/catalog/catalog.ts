@@ -11,8 +11,6 @@ export type SellableProduct = {
   pricesCents: PriceTable;
 };
 
-const ACCEPTED: ReadonlySet<string> = new Set(PAYMENT_TYPES);
-
 /** Price shown before the payment type is known: Pix, then cash, then the lowest. */
 export function referencePriceCents(prices: PriceTable): number | null {
   if (prices.PIX !== undefined) return prices.PIX;
@@ -31,6 +29,8 @@ export type CatalogOptions = {
   now?: () => number;
   /** REVGAS_PRODUCT_IDS: offer only these products and their cylinders. */
   productIds?: number[] | null;
+  /** Payment types the bot accepts (VALEGAS only with REVGAS_VALEGAS_ENABLED). */
+  acceptedPayments?: readonly PaymentType[];
 };
 
 export class Catalog {
@@ -39,6 +39,7 @@ export class Catalog {
   private readonly ttlMs: number;
   private readonly now: () => number;
   private readonly productIds: number[] | null;
+  private readonly accepted: ReadonlySet<string>;
 
   constructor(
     private readonly client: RevgasClient,
@@ -48,6 +49,7 @@ export class Catalog {
     this.ttlMs = opts.ttlMs ?? 30 * 60_000;
     this.now = opts.now ?? Date.now;
     this.productIds = opts.productIds ?? null;
+    this.accepted = new Set(opts.acceptedPayments ?? PAYMENT_TYPES);
   }
 
   /**
@@ -81,7 +83,7 @@ export class Catalog {
       this.client.listProducts(this.establishmentId),
       this.client.listDeals(this.establishmentId),
     ]);
-    const prices = priceIndex(deals);
+    const prices = priceIndex(deals, this.accepted);
     let allowed: Set<number> | null = null;
     if (this.productIds) {
       allowed = new Set(this.productIds);
@@ -100,10 +102,10 @@ export class Catalog {
   }
 }
 
-function priceIndex(deals: RevgasDeal[]): Map<number, PriceTable> {
+function priceIndex(deals: RevgasDeal[], accepted: ReadonlySet<string>): Map<number, PriceTable> {
   const chosen = new Map<string, RevgasDeal>();
   for (const d of deals) {
-    if (d.type !== "PAYMENT_TYPE" || !ACCEPTED.has(d.payment_type)) continue;
+    if (d.type !== "PAYMENT_TYPE" || !accepted.has(d.payment_type)) continue;
     if (!Number.isFinite(d.suggested_value) || d.suggested_value <= 0) continue;
     const key = `${d.product_id}:${d.payment_type}`;
     const current = chosen.get(key);

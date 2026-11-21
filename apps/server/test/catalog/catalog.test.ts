@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Catalog, referencePriceCents } from "../../src/catalog/catalog.js";
 import { FakeRevgasClient } from "../../src/revgas/fakeClient.js";
-import { PAYMENT_TYPES, type RevgasDeal } from "../../src/revgas/types.js";
+import { PAYMENT_TYPES, acceptedPaymentTypes, type RevgasDeal } from "../../src/revgas/types.js";
 
 let fake: FakeRevgasClient;
 let t: number;
@@ -166,5 +166,13 @@ describe("Vale Gás (until RevGás says how to send the coupon code)", () => {
     fake.deals.push(deal(23741, "VALEGAS", 10));
     const catalog = new Catalog(fake, 2580, { ttlMs: 1000, now });
     expect((await catalog.get(23741))?.pricesCents).toEqual({ PIX: 1000 });
+  });
+});
+
+describe("Catalog — Vale Gás enabled", () => {
+  it("accepts VALEGAS deals when VALEGAS is in the accepted payment types", async () => {
+    fake.deals.push(deal(23741, "VALEGAS", 10));
+    const catalog = new Catalog(fake, 2580, { ttlMs: 1000, now, acceptedPayments: acceptedPaymentTypes(true) });
+    expect((await catalog.get(23741))?.pricesCents).toEqual({ PIX: 1000, VALEGAS: 1000 });
   });
 });

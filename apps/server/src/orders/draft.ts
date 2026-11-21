@@ -14,7 +14,8 @@ export type DraftAddress = {
 export type DraftInput = {
   items: { productId: number; quantity: number }[];
   address: DraftAddress;
-  payments: { type: PaymentType; amountCents?: number }[];
+  /** couponCode: Vale Gás coupon, required for VALEGAS and refused for the other types. */
+  payments: { type: PaymentType; amountCents?: number; couponCode?: string }[];
   observation?: string;
   /**
    * How many empty cylinders the customer has to swap. Cylinders charged = max(0, gas − empties),
@@ -36,7 +37,13 @@ export const PAYMENT_LABELS: Record<PaymentType, string> = {
   MONEY: "Dinheiro",
   CARTAO_DE_CREDITO: "Cartão de crédito",
   CARTAO_DE_DEBITO: "Cartão de débito",
+  VALEGAS: "Vale Gás",
 };
+
+/** Payment label for the customer; a Vale Gás coupon shows only its last 4 characters. */
+function paymentLabel(p: { type: PaymentType; couponCode?: string }): string {
+  return p.couponCode ? `${PAYMENT_LABELS[p.type]} (cupom final ${p.couponCode.slice(-4)})` : PAYMENT_LABELS[p.type];
+}
 
 const ADDRESS_FIELDS: [keyof DraftAddress, string][] = [
   ["location", "rua"],
@@ -168,10 +175,15 @@ function fillPayments(
   raw: DraftInput["payments"],
   totalCents: number,
   errors: string[],
-): { type: PaymentType; amountCents: number }[] {
+): { type: PaymentType; amountCents: number; couponCode?: string }[] {
   if (raw.length === 0) {
     errors.push("Forma de pagamento não informada");
     return [];
+  }
+  for (const p of raw) {
+    const coupon = (p.couponCode ?? "").trim();
+    if (p.type === "VALEGAS" && !coupon) errors.push("Peça ao cliente o código do cupom do Vale Gás e informe couponCode");
+    if (p.type !== "VALEGAS" && coupon) errors.push("O código do cupom só vale para Vale Gás");
   }
   const withoutAmount = raw.filter((p) => p.amountCents === undefined);
   if (withoutAmount.length > 1) {
@@ -184,7 +196,10 @@ function fillPayments(
   }
   const known = raw.reduce((sum, p) => sum + (p.amountCents ?? 0), 0);
   // The single payment without an amount takes the remainder (the whole total if it is the only one).
-  const payments = raw.map((p) => ({ type: p.type, amountCents: p.amountCents ?? totalCents - known }));
+  const payments = raw.map((p) => {
+    const coupon = p.type === "VALEGAS" ? (p.couponCode ?? "").trim() : "";
+    return { type: p.type, amountCents: p.amountCents ?? totalCents - known, ...(coupon ? { couponCode: coupon } : {}) };
+  });
   const sum = payments.reduce((s, p) => s + p.amountCents, 0);
   if (sum !== totalCents || payments.some((p) => p.amountCents <= 0)) {
     if (totalCents > 0) errors.push("Pagamentos não somam o total");
@@ -198,8 +213,8 @@ function summarize(d: DraftData): string {
   const street = `${a.location}, ${a.number}${extras.length ? ` (${extras.join("; ")})` : ""}`;
   const payment =
     d.payments.length === 1
-      ? PAYMENT_LABELS[d.payments[0]!.type]
-      : d.payments.map((p) => `${PAYMENT_LABELS[p.type]} ${formatCents(p.amountCents!)}`).join(" + ");
+      ? paymentLabel(d.payments[0]!)
+      : d.payments.map((p) => `${paymentLabel(p)} ${formatCents(p.amountCents!)}`).join(" + ");
   return [
     "Resumo do pedido:",
     ...d.lines.map((l) => `• ${l.quantity}x ${l.description} — ${formatCents(l.totalCents)}`),
@@ -227,7 +242,11 @@ export function toSalePayload(d: DraftData, establishmentId: number, broadcast: 
     ...(d.customerId !== null ? { customer_id: d.customerId } : {}),
     establishment_id: establishmentId,
     products: d.lines.map((l) => ({ product_id: l.productId, quantity: l.quantity, value: toReais(l.unitCents) })),
-    payments: d.payments.map((p) => ({ payment_type: p.type, value: toReais(p.amountCents ?? 0) })),
+    payments: d.payments.map((p) => ({
+      payment_type: p.type,
+      value: toReais(p.amountCents ?? 0),
+      ...(p.type === "VALEGAS" && p.couponCode ? { serial: p.couponCode } : {}),
+    })),
     channel: "WHATSAPP",
     origin: "INTEGRATION",
     option: "NORMAL",

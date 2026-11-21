@@ -15,6 +15,8 @@ const envSchema = z.object({
     .default(2580),
   REVGAS_WRITE_ENABLED: z.string().optional(),
   REVGAS_CUSTOMERS_ENABLED: z.string().optional(),
+  REVGAS_VALEGAS_ENABLED: z.string().optional(),
+  REVGAS_PRICE_PRIORITY: z.string().optional(),
   REVGAS_PRODUCT_IDS: z
     .string()
     .regex(/^\s*\d+(\s*,\s*\d+)*\s*$/, { error: "REVGAS_PRODUCT_IDS deve ser uma lista de ids separados por vírgula" })
@@ -34,6 +36,10 @@ export type AppConfig = {
   revgasWriteEnabled: boolean;
   /** C1: query RevGás /customers (403 for the current token) after the local profile. */
   revgasCustomersEnabled: boolean;
+  /** Accept Vale Gás (coupon code sent in payments[].serial). */
+  revgasValegasEnabled: boolean;
+  /** Price from the customer deal > customer category (TAG) deal > general deal, for identified customers. */
+  revgasPricePriority: boolean;
   /** Only these products (and their cylinders) are offered; null = every product with a deal. */
   revgasProductIds: number[] | null;
   revgasBroadcast: "NONE" | "NEW_SALE";
@@ -64,6 +70,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     revgasEstablishmentId: e.REVGAS_ESTABLISHMENT_ID,
     revgasWriteEnabled: e.REVGAS_WRITE_ENABLED === "true",
     revgasCustomersEnabled: e.REVGAS_CUSTOMERS_ENABLED === "true",
+    revgasValegasEnabled: e.REVGAS_VALEGAS_ENABLED === "true",
+    revgasPricePriority: e.REVGAS_PRICE_PRIORITY === "true",
     revgasProductIds: e.REVGAS_PRODUCT_IDS ? e.REVGAS_PRODUCT_IDS.split(",").map((s) => Number(s.trim())) : null,
     revgasBroadcast: e.REVGAS_BROADCAST,
     anthropicApiKey: e.ANTHROPIC_API_KEY,

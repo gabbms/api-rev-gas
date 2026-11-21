@@ -1,8 +1,15 @@
 import { z } from "zod";
 
-// VALEGAS left out until RevGás says how the coupon code must be sent with the sale.
-export const PAYMENT_TYPES = ["PIX", "MONEY", "CARTAO_DE_CREDITO", "CARTAO_DE_DEBITO"] as const;
-export type PaymentType = (typeof PAYMENT_TYPES)[number];
+/** Every payment type the bot knows. */
+export const ALL_PAYMENT_TYPES = ["PIX", "MONEY", "CARTAO_DE_CREDITO", "CARTAO_DE_DEBITO", "VALEGAS"] as const;
+export type PaymentType = (typeof ALL_PAYMENT_TYPES)[number];
+
+/** Accepted by default. VALEGAS only with REVGAS_VALEGAS_ENABLED (coupon code in payments[].serial). */
+export const PAYMENT_TYPES = ["PIX", "MONEY", "CARTAO_DE_CREDITO", "CARTAO_DE_DEBITO"] as const satisfies readonly PaymentType[];
+
+export function acceptedPaymentTypes(valegasEnabled: boolean): readonly PaymentType[] {
+  return valegasEnabled ? ALL_PAYMENT_TYPES : PAYMENT_TYPES;
+}
 
 export const SALE_STATUSES = ["CANCEL", "OPEN", "ACTIVE", "WARNING", "CONFIRM", "CHECK"] as const;
 
@@ -76,7 +83,8 @@ export type SalePayload = {
   customer_id?: number;
   establishment_id: number;
   products: { product_id: number; quantity: number; value: number }[];
-  payments: { payment_type: PaymentType; value: number }[];
+  /** serial: Vale Gás coupon code. */
+  payments: { payment_type: PaymentType; value: number; serial?: string }[];
   channel: "WHATSAPP";
   origin: "INTEGRATION";
   option: "NORMAL";

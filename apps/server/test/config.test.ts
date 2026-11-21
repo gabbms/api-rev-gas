@@ -46,6 +46,15 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...required, REVGAS_PRODUCT_IDS: "23740,abc" })).toThrow(/REVGAS_PRODUCT_IDS/);
   });
 
+  it("keeps Vale Gás and price priority off unless set to exactly 'true'", () => {
+    const off = loadConfig({ ...required });
+    expect([off.revgasValegasEnabled, off.revgasPricePriority]).toEqual([false, false]);
+    const on = loadConfig({ ...required, REVGAS_VALEGAS_ENABLED: "true", REVGAS_PRICE_PRIORITY: "true" });
+    expect([on.revgasValegasEnabled, on.revgasPricePriority]).toEqual([true, true]);
+    const other = loadConfig({ ...required, REVGAS_VALEGAS_ENABLED: "1", REVGAS_PRICE_PRIORITY: "yes" });
+    expect([other.revgasValegasEnabled, other.revgasPricePriority]).toEqual([false, false]);
+  });
+
   it("never includes variable values in the error message", () => {
     const env = {
       DATABASE_URL: "postgres://leaky-db-value",

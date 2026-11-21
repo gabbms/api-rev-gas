@@ -7,6 +7,7 @@ import { createDb } from "./db/client.js";
 import { Hub, buildServer } from "./http/server.js";
 import { OrderService } from "./orders/orderService.js";
 import { createRevgasClient } from "./revgas/httpClient.js";
+import { acceptedPaymentTypes } from "./revgas/types.js";
 
 loadDotenv({ path: new URL("../../../.env", import.meta.url), quiet: true });
 const cfg = loadConfig(process.env);
@@ -14,7 +15,10 @@ const cfg = loadConfig(process.env);
 const { db, close } = createDb(cfg.databaseUrl);
 const revgas = createRevgasClient(cfg, db);
 // C2: prices come from RevGás deals (/deals), cached; warmed up now so the first customer doesn't wait.
-const catalog = new Catalog(revgas, cfg.revgasEstablishmentId, { productIds: cfg.revgasProductIds });
+const catalog = new Catalog(revgas, cfg.revgasEstablishmentId, {
+  productIds: cfg.revgasProductIds,
+  acceptedPayments: acceptedPaymentTypes(cfg.revgasValegasEnabled),
+});
 void catalog
   .list()
   .then((items) => console.info(`[catálogo] ${items.length} produtos com preço (acordos) carregados`))

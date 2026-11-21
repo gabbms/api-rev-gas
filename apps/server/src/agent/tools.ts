@@ -8,7 +8,7 @@ import type { Db } from "../db/client.js";
 import { conversations } from "../db/schema.js";
 import { PAYMENT_LABELS, formatCents } from "../orders/draft.js";
 import type { OrderService } from "../orders/orderService.js";
-import { PAYMENT_TYPES, RevgasError, type PaymentType, type RevgasClient } from "../revgas/types.js";
+import { ALL_PAYMENT_TYPES, RevgasError, acceptedPaymentTypes, type PaymentType, type RevgasClient } from "../revgas/types.js";
 
 export type ToolContext = {
   conversationId: string;
@@ -46,7 +46,10 @@ const addressSchema = {
   additionalProperties: false,
 } as const;
 
-export const toolDefinitions: Anthropic.Beta.BetaTool[] = [
+/** Tool list for this configuration. Must stay identical across a conversation (thinking is bound to it). */
+export function toolDefinitionsFor(cfg: Pick<AppConfig, "revgasValegasEnabled">): Anthropic.Beta.BetaTool[] {
+  const accepted = acceptedPaymentTypes(cfg.revgasValegasEnabled);
+  return [
   {
     name: "buscar_cliente",
     description:
@@ -89,8 +92,11 @@ export const toolDefinitions: Anthropic.Beta.BetaTool[] = [
           items: {
             type: "object",
             properties: {
-              type: { type: "string", enum: [...PAYMENT_TYPES], description: "MONEY = dinheiro" },
+              type: { type: "string", enum: [...accepted], description: "MONEY = dinheiro" },
               amountCents: { type: "integer", description: "Valor em centavos (ex.: 5000 = R$ 50,00)" },
+              ...(cfg.revgasValegasEnabled
+                ? { couponCode: { type: "string", description: "Código do cupom do Vale Gás. Obrigatório para VALEGAS; não use nas outras formas." } }
+                : {}),
             },
             required: ["type"],
             additionalProperties: false,
@@ -134,13 +140,22 @@ export const toolDefinitions: Anthropic.Beta.BetaTool[] = [
     strict: true,
   },
 ];
+}
+
+/** The default tool list (Vale Gás off). */
+export const toolDefinitions = toolDefinitionsFor({ revgasValegasEnabled: false });
 
 const emptyInput = z.object({}).strict();
 
 const EMPTY_CYLINDERS_HELP =
   "informe emptyCylinders com o número de botijões vazios para trocar (0 se o cliente não tem nenhum ou se o pedido não tem gás)";
 
-const montarPedidoInput = z
+function montarPedidoInputFor(valegasEnabled: boolean) {
+  const accepted = acceptedPaymentTypes(valegasEnabled) as [PaymentType, ...PaymentType[]];
+  const payment = valegasEnabled
+    ? z.object({ type: z.enum(accepted), amountCents: z.number().int().optional(), couponCode: z.string().optional() }).strict()
+    : z.object({ type: z.enum(accepted), amountCents: z.number().int().optional() }).strict();
+  return z
   .object({
     items: z.array(z.object({ productId: z.number().int(), quantity: z.number().int() }).strict()),
     address: z
@@ -154,12 +169,13 @@ const montarPedidoInput = z
         landmark: z.string().optional(),
       })
       .strict(),
-    payments: z.array(z.object({ type: z.enum(PAYMENT_TYPES), amountCents: z.number().int().optional() }).strict()),
+    payments: z.array(payment),
     emptyCylinders: z.number({ error: EMPTY_CYLINDERS_HELP }).int({ error: EMPTY_CYLINDERS_HELP }).min(0, { error: EMPTY_CYLINDERS_HELP }),
     customerName: z.string().optional(),
     observation: z.string().optional(),
   })
   .strict();
+}
 
 const chamarAtendenteInput = z.object({ motivo: z.string().min(1) }).strict();
 
@@ -185,7 +201,7 @@ const reais = (value: number) => `R$ ${value.toFixed(2).replace(".", ",")}`;
 
 function pricesByPayment(prices: PriceTable): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const t of PAYMENT_TYPES) if (prices[t] !== undefined) out[PAYMENT_LABELS[t as PaymentType]] = formatCents(prices[t]!);
+  for (const t of ALL_PAYMENT_TYPES) if (prices[t] !== undefined) out[PAYMENT_LABELS[t as PaymentType]] = formatCents(prices[t]!);
   return out;
 }
 
@@ -202,7 +218,7 @@ export async function runTool(name: string, input: unknown, ctx: ToolContext, de
       return listarProdutos(deps);
     }
     case "montar_pedido": {
-      const parsed = montarPedidoInput.safeParse(input);
+      const parsed = montarPedidoInputFor(deps.cfg.revgasValegasEnabled).safeParse(input);
       if (!parsed.success) return invalid(parsed.error);
       const result = await deps.orders.upsertDraft(ctx.conversationId, parsed.data, ctx.customerId);
       if (!result.ok) return fail(`Pedido não pôde ser montado: ${result.errors.join("; ")}`);
