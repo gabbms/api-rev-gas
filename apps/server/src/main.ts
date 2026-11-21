@@ -20,6 +20,8 @@ void catalog
   .then((items) => console.info(`[catálogo] ${items.length} produtos com preço (acordos) carregados`))
   .catch((e: unknown) => console.error("[catálogo] falha ao carregar produtos/acordos:", e instanceof Error ? e.message : e));
 const orders = new OrderService(db, catalog, revgas, cfg);
+// A draft left in 'sending' by a crash would block that phone forever: settle it before serving.
+await orders.recoverInterruptedSales();
 const anthropic = new Anthropic({ apiKey: cfg.anthropicApiKey });
 
 const hub = new Hub();

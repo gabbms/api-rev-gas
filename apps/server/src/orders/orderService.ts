@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, lt, sql } from "drizzle-orm";
 import type { Catalog } from "../catalog/catalog.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/client.js";
@@ -125,20 +125,70 @@ export class OrderService {
     }
 
     const payload = toSalePayload(draft.payload as DraftData, this.cfg.revgasEstablishmentId, this.cfg.revgasBroadcast);
+    let sale: RevgasSale;
     try {
-      const sale = await this.revgas.createSale(payload);
-      await this.finish(draft.id, { status: "created", revgasSaleId: sale.id });
-      await this.rememberCustomer(conversationId, draft.payload as DraftData, sale.id);
-      return { kind: "created", saleId: sale.id };
+      sale = await this.revgas.createSale(payload);
     } catch (e) {
       // Only errors where RevGás clearly did not create the sale are "rejected".
       if (e instanceof RevgasError && e.kind !== "server" && e.kind !== "network") {
-        await this.finish(draft.id, { status: "failed", errorMessage: e.message });
+        await this.finishOrUncertain(draft.id, { status: "failed", errorMessage: e.message });
         return { kind: "rejected", message: e.message };
       }
       const message = e instanceof Error ? e.message : String(e);
-      await this.finish(draft.id, { status: "uncertain", errorMessage: message });
+      await this.finishOrUncertain(draft.id, { status: "uncertain", errorMessage: message });
       return { kind: "uncertain" };
+    }
+
+    try {
+      await this.finish(draft.id, { status: "created", revgasSaleId: sale.id });
+    } catch (e) {
+      // The sale exists in RevGás but we could not record it: never leave the draft in 'sending'.
+      console.error(`[pedidos] venda ${sale.id} criada, mas não foi gravada:`, e instanceof Error ? e.message : e);
+      await this.finishOrUncertain(draft.id, {
+        status: "uncertain",
+        revgasSaleId: sale.id,
+        errorMessage: `Venda ${sale.id} criada na RevGás, mas não foi gravada no sistema; conferir no ERP`,
+      });
+      return { kind: "uncertain" };
+    }
+    await this.rememberCustomer(conversationId, draft.payload as DraftData, sale.id);
+    return { kind: "created", saleId: sale.id };
+  }
+
+  /**
+   * On startup: a draft still in 'sending' means the process died mid-sale. RevGás may or may not
+   * have the sale, so mark it uncertain and hand the conversation to a human. Returns how many.
+   */
+  async recoverInterruptedSales(olderThanMs = 2 * 60_000, now = new Date()): Promise<number> {
+    const stuck = await this.db
+      .update(orderDrafts)
+      .set({ status: "uncertain", errorMessage: "Venda possivelmente interrompida (servidor reiniciou)", updatedAt: now })
+      .where(and(eq(orderDrafts.status, "sending"), lt(orderDrafts.updatedAt, new Date(now.getTime() - olderThanMs))))
+      .returning({ id: orderDrafts.id, conversationId: orderDrafts.conversationId });
+    for (const d of stuck) {
+      await this.db
+        .update(conversations)
+        .set({ mode: "human", handoffReason: "Venda possivelmente interrompida; conferir no ERP", updatedAt: now })
+        .where(eq(conversations.id, d.conversationId));
+      console.warn(`[pedidos] rascunho ${d.id} estava em 'sending' após reinício; marcado como incerto e enviado a um atendente`);
+    }
+    return stuck.length;
+  }
+
+  /** Records the outcome; if even that fails, tries to at least leave 'sending' as uncertain. */
+  private async finishOrUncertain(
+    draftId: string,
+    values: { status: "failed" | "uncertain"; revgasSaleId?: number; errorMessage?: string },
+  ): Promise<void> {
+    try {
+      await this.finish(draftId, values);
+    } catch (e) {
+      console.error("[pedidos] falha ao gravar o resultado da venda:", e instanceof Error ? e.message : e);
+      try {
+        await this.finish(draftId, { ...values, status: "uncertain" });
+      } catch {
+        // Startup recovery (recoverInterruptedSales) will catch it.
+      }
     }
   }
 

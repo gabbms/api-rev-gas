@@ -216,3 +216,50 @@ describe("OrderService — C1: local customer profile", () => {
     expect(await profiles()).toHaveLength(0);
   });
 });
+
+describe("OrderService — robustness after a crash", () => {
+  const payload = { items: [], address: {}, payments: [] };
+
+  it("marks drafts stuck in 'sending' as uncertain on startup and hands the conversation to a human", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const now = new Date("2026-11-20T12:10:00.000Z");
+    const [other] = await db.insert(conversations).values({ phone: "86988887777" }).returning();
+    const [old] = await db
+      .insert(orderDrafts)
+      .values({ conversationId, status: "sending", payload, totalCents: 1, updatedAt: new Date(now.getTime() - 3 * 60_000) })
+      .returning();
+    const [recent] = await db
+      .insert(orderDrafts)
+      .values({ conversationId: other!.id, status: "sending", payload, totalCents: 1, updatedAt: new Date(now.getTime() - 30_000) })
+      .returning();
+
+    expect(await orders.recoverInterruptedSales(2 * 60_000, now)).toBe(1);
+
+    expect(await draftStatus(old!.id)).toMatchObject({ status: "uncertain" });
+    expect(await draftStatus(recent!.id)).toMatchObject({ status: "sending" });
+    const [conv] = await db.select().from(conversations).where(eq(conversations.id, conversationId));
+    expect(conv).toMatchObject({ mode: "human", handoffReason: "Venda possivelmente interrompida; conferir no ERP" });
+    expect(warn).toHaveBeenCalled();
+    // The unique index no longer blocks a new order for that phone.
+    expect((await orders.upsertDraft(conversationId, input(), null)).ok).toBe(true);
+    warn.mockRestore();
+  });
+
+  it("does not leave the draft in 'sending' when recording a created sale fails", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const draftId = await readyDraft();
+    const finish = (orders as unknown as { finish: (...a: unknown[]) => Promise<void> }).finish.bind(orders);
+    let calls = 0;
+    vi.spyOn(orders as unknown as { finish: (...a: unknown[]) => Promise<void> }, "finish").mockImplementation(async (...args) => {
+      if (calls++ === 0) throw new Error("db write failed");
+      return finish(...args);
+    });
+
+    expect(await orders.confirm(conversationId)).toEqual({ kind: "uncertain" });
+    expect(fake.sales).toHaveLength(1);
+    const row = await draftStatus(draftId);
+    expect(row?.status).toBe("uncertain");
+    expect(row?.errorMessage).toContain(String(fake.sales[0]!.id));
+    error.mockRestore();
+  });
+});
