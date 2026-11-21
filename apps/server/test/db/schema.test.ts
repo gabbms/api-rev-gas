@@ -36,7 +36,7 @@ describe("database schema", () => {
   it("C1: stores one customer profile per normalized phone", async () => {
     await db.insert(customerProfiles).values({ phone: "86999998888", name: "Maria" });
     const [row] = await db.select().from(customerProfiles);
-    expect(row).toMatchObject({ phone: "86999998888", name: "Maria", location: null, hasEmptyCylinder: null, lastSaleId: null });
+    expect(row).toMatchObject({ phone: "86999998888", name: "Maria", location: null, emptyCylinders: null, lastSaleId: null });
     await expect(db.insert(customerProfiles).values({ phone: "86999998888" })).rejects.toMatchObject({ cause: { code: "23505" } });
   });
 

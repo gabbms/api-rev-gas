@@ -4,11 +4,15 @@ import { buildDraft, formatCents, toSalePayload, type DraftInput } from "../../s
 
 const GAS = 23740;
 const CYLINDER = 23741;
+const GAS45 = 23974;
+const CYLINDER45 = 23975;
 const WATER = 26255;
 
 const products: SellableProduct[] = [
   { productId: GAS, description: "GLP 13KG", containerId: CYLINDER, pricesCents: { PIX: 11000, MONEY: 11000, CARTAO_DE_CREDITO: 11500 } },
   { productId: CYLINDER, description: "VASILHAME 13KG", containerId: null, pricesCents: { PIX: 1000, MONEY: 1000, CARTAO_DE_CREDITO: 1000 } },
+  { productId: GAS45, description: "GLP 45KG", containerId: CYLINDER45, pricesCents: { PIX: 40000 } },
+  { productId: CYLINDER45, description: "VASILHAME 45KG", containerId: null, pricesCents: { PIX: 30000 } },
   { productId: WATER, description: "AGUA 20L", containerId: null, pricesCents: { PIX: 1200, MONEY: 1200 } },
 ];
 
@@ -18,7 +22,7 @@ const input = (over: Partial<DraftInput> = {}): DraftInput => ({
   items: [{ productId: GAS, quantity: 1 }],
   address,
   payments: [{ type: "PIX" }],
-  hasEmptyCylinder: true,
+  emptyCylinders: 10, // enough to swap every gas unless a test says otherwise
   ...over,
 });
 
@@ -121,7 +125,7 @@ describe("buildDraft", () => {
 
   it("keeps the customer name and cylinder answer in the draft data", () => {
     const r = ok(buildDraft(input({ customerName: "  Maria  " }), products, null, 10));
-    expect(r.data).toMatchObject({ customerName: "Maria", hasEmptyCylinder: true });
+    expect(r.data).toMatchObject({ customerName: "Maria", emptyCylinders: 10 });
   });
 });
 
@@ -148,15 +152,15 @@ describe("buildDraft — C2: price depends on the payment type", () => {
 
 describe("buildDraft — C3: empty cylinder", () => {
   it("asks whether the customer has an empty cylinder when it is not known", () => {
-    expect(errors(buildDraft(input({ hasEmptyCylinder: undefined }), products, null, 10)).join(" ")).toMatch(/botijão vazio/);
+    expect(errors(buildDraft(input({ emptyCylinders: undefined }), products, null, 10)).join(" ")).toMatch(/botijões vazios/);
   });
 
   it("does not ask for products without a container", () => {
-    ok(buildDraft(input({ items: [{ productId: WATER, quantity: 1 }], hasEmptyCylinder: undefined }), products, null, 10));
+    ok(buildDraft(input({ items: [{ productId: WATER, quantity: 1 }], emptyCylinders: undefined }), products, null, 10));
   });
 
   it("adds the cylinder line, priced by the same payment type, when there is none to swap", () => {
-    const r = ok(buildDraft(input({ items: [{ productId: GAS, quantity: 2 }], hasEmptyCylinder: false }), products, null, 10));
+    const r = ok(buildDraft(input({ items: [{ productId: GAS, quantity: 2 }], emptyCylinders: 0 }), products, null, 10));
     expect(r.data.lines.map((l) => [l.productId, l.quantity, l.unitCents])).toEqual([
       [GAS, 2, 11000],
       [CYLINDER, 2, 1000],
@@ -167,7 +171,7 @@ describe("buildDraft — C3: empty cylinder", () => {
 
   it("does not double the cylinder when the AI already listed it", () => {
     const items = [{ productId: GAS, quantity: 1 }, { productId: CYLINDER, quantity: 1 }];
-    const r = ok(buildDraft(input({ items, hasEmptyCylinder: false }), products, null, 10));
+    const r = ok(buildDraft(input({ items, emptyCylinders: 0 }), products, null, 10));
     expect(r.data.lines.map((l) => [l.productId, l.quantity])).toEqual([
       [GAS, 1],
       [CYLINDER, 1],
@@ -176,9 +180,47 @@ describe("buildDraft — C3: empty cylinder", () => {
 
   it("rejects the order when the cylinder is not sellable", () => {
     const noCylinder = products.filter((p) => p.productId !== CYLINDER);
-    expect(errors(buildDraft(input({ hasEmptyCylinder: false }), noCylinder, null, 10))).toEqual([
+    expect(errors(buildDraft(input({ emptyCylinders: 0 }), noCylinder, null, 10))).toEqual([
       "Vasilhame do GLP 13KG não disponível",
     ]);
+  });
+
+  it("partial swap: 2x GLP 13KG with 1 empty cylinder charges 1 cylinder", () => {
+    const r = ok(buildDraft(input({ items: [{ productId: GAS, quantity: 2 }], emptyCylinders: 1 }), products, null, 10));
+    expect(r.data.lines.map((l) => [l.productId, l.quantity])).toEqual([
+      [GAS, 2],
+      [CYLINDER, 1],
+    ]);
+    expect(r.summaryText).toContain("• 2x GLP 13KG — R$ 220,00\n• 1x VASILHAME 13KG — R$ 10,00\nTotal: R$ 230,00");
+  });
+
+  it("charges no cylinder when there are at least as many empties as gas", () => {
+    const r = ok(buildDraft(input({ items: [{ productId: GAS, quantity: 2 }], emptyCylinders: 5 }), products, null, 10));
+    expect(r.data.lines.map((l) => l.productId)).toEqual([GAS]);
+  });
+
+  it("does not need a sellable cylinder when every gas is swapped", () => {
+    const noCylinder = products.filter((p) => p.productId !== CYLINDER);
+    ok(buildDraft(input({ emptyCylinders: 1 }), noCylinder, null, 10));
+  });
+
+  it("groups cylinders by type, using the empties in item order", () => {
+    const items = [{ productId: GAS, quantity: 2 }, { productId: GAS45, quantity: 1 }];
+    const r = ok(buildDraft(input({ items, emptyCylinders: 1 }), products, null, 10));
+    expect(r.data.lines.map((l) => [l.productId, l.quantity])).toEqual([
+      [GAS, 2],
+      [GAS45, 1],
+      [CYLINDER, 1],
+      [CYLINDER45, 1],
+    ]);
+  });
+
+  it.each([-1, 1.5])("rejects emptyCylinders %d", (emptyCylinders) => {
+    expect(errors(buildDraft(input({ emptyCylinders }), products, null, 10)).join(" ")).toMatch(/botijões vazios/);
+  });
+
+  it("keeps the number of empties in the draft data", () => {
+    expect(ok(buildDraft(input({ emptyCylinders: 0 }), products, null, 10)).data.emptyCylinders).toBe(0);
   });
 });
 
@@ -215,7 +257,7 @@ describe("toSalePayload", () => {
   });
 
   it("sends the cylinder as its own product line at its unit price", () => {
-    const r = ok(buildDraft(input({ items: [{ productId: GAS, quantity: 2 }], hasEmptyCylinder: false }), products, null, 10));
+    const r = ok(buildDraft(input({ items: [{ productId: GAS, quantity: 2 }], emptyCylinders: 0 }), products, null, 10));
     expect(toSalePayload(r.data, 2580, "NONE").products).toEqual([
       { product_id: GAS, quantity: 2, value: 110 },
       { product_id: CYLINDER, quantity: 2, value: 10 },

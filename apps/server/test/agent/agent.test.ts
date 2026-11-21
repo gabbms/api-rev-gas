@@ -71,7 +71,7 @@ const orderInput = {
   items: [{ productId: 23740, quantity: 1 }],
   address: { location: "Rua das Flores", number: "120", neighborhood: "Centro", city: "Teresina", state: "PI" },
   payments: [{ type: "PIX" }],
-  hasEmptyCylinder: true,
+  emptyCylinders: 1,
   customerName: "Maria",
 };
 
@@ -231,7 +231,7 @@ describe("tools", () => {
     it("offers the saved address of a known customer", async () => {
       await db.insert(customerProfiles).values({
         phone: "86999998888", name: "Maria", location: "Rua X", number: "120", neighborhood: "Centro",
-        city: "Teresina", state: "PI", hasEmptyCylinder: true, lastSaleId: 900000001,
+        city: "Teresina", state: "PI", emptyCylinders: 1, lastSaleId: 900000001,
       });
       const body = JSON.parse((await runTool("buscar_cliente", {}, ctx(), deps(scriptedAnthropic()))).content);
       expect(body).toMatchObject({
@@ -239,7 +239,7 @@ describe("tools", () => {
         nome: "Maria",
         enderecoTexto: "Rua X, 120 – Centro, Teresina/PI",
         endereco: { location: "Rua X", number: "120", neighborhood: "Centro", city: "Teresina", state: "PI" },
-        trocouBotijaoNaUltimaCompra: true,
+        botijoesVaziosNaUltimaCompra: 1,
       });
       expect(body.instrucao).toContain("Entregar no mesmo endereço de antes (Rua X, 120 – Centro)?");
     });
@@ -299,14 +299,14 @@ describe("tools", () => {
   });
 
   it("montar_pedido (C3) asks about the empty cylinder before building a gas order", async () => {
-    const r = await runTool("montar_pedido", { ...orderInput, hasEmptyCylinder: undefined }, ctx(), deps(scriptedAnthropic()));
+    const r = await runTool("montar_pedido", { ...orderInput, emptyCylinders: undefined }, ctx(), deps(scriptedAnthropic()));
     expect(r.isError).toBe(true);
-    expect(r.content).toMatch(/botijão vazio/);
+    expect(r.content).toMatch(/botijões vazios/);
   });
 
   it("montar_pedido (C3) adds the cylinder when the customer has none to swap", async () => {
     const c = ctx();
-    await runTool("montar_pedido", { ...orderInput, hasEmptyCylinder: false }, c, deps(scriptedAnthropic()));
+    await runTool("montar_pedido", { ...orderInput, emptyCylinders: 0 }, c, deps(scriptedAnthropic()));
     expect(c.events.draftPresentable?.summaryText).toContain("• 1x GLP 13KG — R$ 110,00\n• 1x VASILHAME 13KG — R$ 10,00\nTotal: R$ 120,00");
   });
 

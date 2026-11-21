@@ -2,7 +2,6 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   bigserial,
-  boolean,
   index,
   integer,
   jsonb,
@@ -40,7 +39,8 @@ export const customerProfiles = pgTable("customer_profiles", {
   state: text("state"),
   complement: text("complement"),
   landmark: text("landmark"),
-  hasEmptyCylinder: boolean("has_empty_cylinder"),
+  /** Empty cylinders the customer swapped on the last sale. */
+  emptyCylinders: integer("empty_cylinders"),
   revgasCustomerId: bigint("revgas_customer_id", { mode: "number" }),
   lastSaleId: bigint("last_sale_id", { mode: "number" }),
   createdAt: createdAt(),

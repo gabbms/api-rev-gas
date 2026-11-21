@@ -22,7 +22,7 @@ const input = (quantity = 1): DraftInput => ({
   items: [{ productId: 23740, quantity }],
   address: { location: "Rua das Flores", number: "120", neighborhood: "Centro", city: "Teresina", state: "PI" },
   payments: [{ type: "PIX" }],
-  hasEmptyCylinder: true,
+  emptyCylinders: 1,
   customerName: "Maria",
 });
 
@@ -187,7 +187,7 @@ describe("OrderService — C1: local customer profile", () => {
         state: "PI",
         complement: null,
         landmark: null,
-        hasEmptyCylinder: true,
+        emptyCylinders: 1,
         lastSaleId: fake.sales[0]!.id,
       }),
     ]);

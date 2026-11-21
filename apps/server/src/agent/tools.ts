@@ -70,7 +70,7 @@ export const toolDefinitions: Anthropic.Beta.BetaTool[] = [
       properties: {
         items: {
           type: "array",
-          description: "Itens do pedido. Não inclua o vasilhame: o sistema adiciona quando hasEmptyCylinder for false.",
+          description: "Itens do pedido. Não inclua o vasilhame: o sistema adiciona os que faltarem conforme emptyCylinders.",
           items: {
             type: "object",
             properties: {
@@ -96,10 +96,10 @@ export const toolDefinitions: Anthropic.Beta.BetaTool[] = [
             additionalProperties: false,
           },
         },
-        hasEmptyCylinder: {
-          type: "boolean",
+        emptyCylinders: {
+          type: "integer",
           description:
-            "Para gás: true se o cliente tem botijão vazio para trocar; false se não tem (o vasilhame é vendido junto). Pergunte antes de montar.",
+            "Para gás: quantos botijões vazios o cliente tem para trocar (0 se nenhum). O sistema cobra um vasilhame para cada botijão de gás sem vazio. Pergunte antes de montar.",
         },
         customerName: { type: "string", description: "Nome do cliente, se ele informou" },
         observation: { type: "string", description: "Observação para a entrega, ex.: troco para R$ 200" },
@@ -152,7 +152,7 @@ const montarPedidoInput = z
       })
       .strict(),
     payments: z.array(z.object({ type: z.enum(PAYMENT_TYPES), amountCents: z.number().int().optional() }).strict()),
-    hasEmptyCylinder: z.boolean().optional(),
+    emptyCylinders: z.number().int().min(0).optional(),
     customerName: z.string().optional(),
     observation: z.string().optional(),
   })
@@ -324,7 +324,7 @@ async function buscarCliente(ctx: ToolContext, deps: AgentDeps): Promise<ToolRes
           ...(profile.landmark ? { landmark: profile.landmark } : {}),
         },
         enderecoTexto: `${street}, ${profile.city}/${profile.state}`,
-        trocouBotijaoNaUltimaCompra: profile.hasEmptyCylinder,
+        botijoesVaziosNaUltimaCompra: profile.emptyCylinders,
         instrucao: `Cumprimente pelo nome e pergunte: "Entregar no mesmo endereço de antes (${street})?"`,
         ...(revgasNote ? { observacao: revgasNote } : {}),
       }),

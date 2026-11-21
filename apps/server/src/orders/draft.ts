@@ -16,8 +16,11 @@ export type DraftInput = {
   address: DraftAddress;
   payments: { type: PaymentType; amountCents?: number }[];
   observation?: string;
-  /** Customer has an empty cylinder to swap. `false` adds the container product; unknown blocks gas orders. */
-  hasEmptyCylinder?: boolean;
+  /**
+   * How many empty cylinders the customer has to swap. Cylinders charged = max(0, gas − empties),
+   * per container type. Unknown blocks gas orders.
+   */
+  emptyCylinders?: number;
   /** Kept in the local customer profile after a created sale. */
   customerName?: string;
 };
@@ -71,21 +74,32 @@ export function buildDraft(
   for (const item of input.items) merged.set(item.productId, (merged.get(item.productId) ?? 0) + item.quantity);
   if (merged.size === 0) errors.push("Pedido sem itens");
 
-  // C3: gas needs an empty cylinder to swap; without one, the container product is sold too.
+  // C3: each gas unit needs an empty cylinder to swap; the missing ones are sold (container product),
+  // grouped by container type. Empties are used in item order.
   const gas = [...merged].flatMap(([id, qty]) => {
     const p = find(id);
-    return p?.containerId ? [{ product: p, containerId: p.containerId, qty }] : [];
+    // Invalid quantities are reported below; they must not produce cylinder lines.
+    const validQty = Number.isInteger(qty) && qty >= 1 && qty <= maxQty;
+    return p?.containerId && validQty ? [{ product: p, containerId: p.containerId, qty }] : [];
   });
-  if (gas.length > 0 && input.hasEmptyCylinder === undefined) {
-    errors.push("Pergunte ao cliente se ele tem botijão vazio para trocar e informe hasEmptyCylinder");
-  } else if (input.hasEmptyCylinder === false) {
+  const empties = input.emptyCylinders;
+  if (empties !== undefined && (!Number.isInteger(empties) || empties < 0)) {
+    errors.push("Número de botijões vazios inválido: deve ser um inteiro igual ou maior que zero");
+  } else if (gas.length > 0 && empties === undefined) {
+    errors.push("Pergunte ao cliente quantos botijões vazios ele tem para trocar e informe emptyCylinders");
+  } else if (gas.length > 0 && empties !== undefined) {
+    let left = empties;
     const needed = new Map<number, number>();
     for (const g of gas) {
+      const swapped = Math.min(left, g.qty);
+      left -= swapped;
+      const missing = g.qty - swapped;
+      if (missing === 0) continue;
       if (!find(g.containerId)) {
         errors.push(`Vasilhame do ${g.product.description} não disponível`);
         continue;
       }
-      needed.set(g.containerId, (needed.get(g.containerId) ?? 0) + g.qty);
+      needed.set(g.containerId, (needed.get(g.containerId) ?? 0) + missing);
     }
     for (const [cid, qty] of needed) merged.set(cid, Math.max(merged.get(cid) ?? 0, qty));
   }
@@ -142,7 +156,7 @@ export function buildDraft(
     payments,
     ...(observation ? { observation } : {}),
     ...(customerName ? { customerName } : {}),
-    ...(input.hasEmptyCylinder !== undefined ? { hasEmptyCylinder: input.hasEmptyCylinder } : {}),
+    ...(input.emptyCylinders !== undefined ? { emptyCylinders: input.emptyCylinders } : {}),
     lines,
     totalCents,
     customerId,

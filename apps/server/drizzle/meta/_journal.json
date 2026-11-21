@@ -15,6 +15,20 @@
       "when": 1795206114104,
       "tag": "0001_damp_expediter",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795219495189,
+      "tag": "0002_bitter_queen_noir",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1795219496172,
+      "tag": "0003_nebulous_siren",
+      "breakpoints": true
     }
   ]
 }

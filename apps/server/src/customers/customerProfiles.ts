@@ -27,7 +27,7 @@ export async function saveProfileFromSale(db: Db, phone: string, draft: DraftDat
     landmark: a.landmark ?? null,
     lastSaleId: saleId,
     updatedAt: new Date(),
-    ...(draft.hasEmptyCylinder !== undefined ? { hasEmptyCylinder: draft.hasEmptyCylinder } : {}),
+    ...(draft.emptyCylinders !== undefined ? { emptyCylinders: draft.emptyCylinders } : {}),
     ...(draft.customerId !== null ? { revgasCustomerId: draft.customerId } : {}),
   };
   await db
