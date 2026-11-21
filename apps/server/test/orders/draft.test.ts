@@ -133,8 +133,8 @@ describe("buildDraft — C2: price depends on the payment type", () => {
   });
 
   it("rejects a payment type without a deal for the product", () => {
-    expect(errors(buildDraft(input({ payments: [{ type: "VALEGAS" }] }), products, null, 10))).toEqual([
-      "GLP 13KG não pode ser pago com Vale Gás",
+    expect(errors(buildDraft(input({ payments: [{ type: "CARTAO_DE_DEBITO" }] }), products, null, 10))).toEqual([
+      "GLP 13KG não pode ser pago com Cartão de débito",
     ]);
   });
 

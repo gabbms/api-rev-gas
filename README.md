@@ -137,3 +137,5 @@ Também vale mostrar: mudar o pedido depois do resumo ("na verdade são 2") gera
 6. `broadcast: NEW_SALE` notifica entregadores reais nessa conta?
 7. Vemos vendas `WHATSAPP` recentes no 2580 (12 neste mês, várias canceladas). Há outra integração
    testando nesse estabelecimento?
+8. Como enviar o pagamento em **Vale Gás** em `POST /sales`? O código do cupom vai em `payments[].serial`
+   ou em outro campo? Até sabermos, o bot não aceita vale gás.

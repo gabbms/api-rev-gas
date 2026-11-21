@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-export const PAYMENT_TYPES = ["PIX", "MONEY", "CARTAO_DE_CREDITO", "CARTAO_DE_DEBITO", "VALEGAS"] as const;
+// VALEGAS left out until RevGás says how the coupon code must be sent with the sale.
+export const PAYMENT_TYPES = ["PIX", "MONEY", "CARTAO_DE_CREDITO", "CARTAO_DE_DEBITO"] as const;
 export type PaymentType = (typeof PAYMENT_TYPES)[number];
 
 export const SALE_STATUSES = ["CANCEL", "OPEN", "ACTIVE", "WARNING", "CONFIRM", "CHECK"] as const;

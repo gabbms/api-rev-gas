@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Catalog, referencePriceCents } from "../../src/catalog/catalog.js";
 import { FakeRevgasClient } from "../../src/revgas/fakeClient.js";
-import type { RevgasDeal } from "../../src/revgas/types.js";
+import { PAYMENT_TYPES, type RevgasDeal } from "../../src/revgas/types.js";
 
 let fake: FakeRevgasClient;
 let t: number;
@@ -103,6 +103,18 @@ describe("referencePriceCents", () => {
   it("uses Pix, then cash, then the lowest price", () => {
     expect(referencePriceCents({ PIX: 100, MONEY: 90 })).toBe(100);
     expect(referencePriceCents({ MONEY: 90, CARTAO_DE_CREDITO: 95 })).toBe(90);
-    expect(referencePriceCents({ CARTAO_DE_CREDITO: 95, VALEGAS: 93 })).toBe(93);
+    expect(referencePriceCents({ CARTAO_DE_CREDITO: 95, CARTAO_DE_DEBITO: 93 })).toBe(93);
+  });
+});
+
+describe("Vale Gás (until RevGás says how to send the coupon code)", () => {
+  it("is not an accepted payment type", () => {
+    expect(PAYMENT_TYPES).not.toContain("VALEGAS");
+  });
+
+  it("is ignored in deals", async () => {
+    fake.deals.push(deal(23741, "VALEGAS", 10));
+    const catalog = new Catalog(fake, 2580, 1000, now);
+    expect((await catalog.get(23741))?.pricesCents).toEqual({ PIX: 1000 });
   });
 });

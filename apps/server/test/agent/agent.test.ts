@@ -2,6 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { asc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { runAgentTurn, type AgentDeps, type ToolContext } from "../../src/agent/agent.js";
+import { SYSTEM_PROMPT } from "../../src/agent/systemPrompt.js";
 import { runTool, toolDefinitions } from "../../src/agent/tools.js";
 import { Catalog } from "../../src/catalog/catalog.js";
 import { loadConfig } from "../../src/config.js";
@@ -356,5 +357,17 @@ describe("tools", () => {
   it("rejects an unknown tool", async () => {
     const r = await runTool("apagar_tudo", {}, ctx(), deps(scriptedAnthropic()));
     expect(r.isError).toBe(true);
+  });
+
+  it("does not offer Vale Gás in the montar_pedido schema nor accept it", async () => {
+    const montar = toolDefinitions.find((t) => t.name === "montar_pedido")!;
+    expect(JSON.stringify(montar.input_schema)).not.toContain("VALEGAS");
+    const r = await runTool("montar_pedido", { ...orderInput, payments: [{ type: "VALEGAS" }] }, ctx(), deps(scriptedAnthropic()));
+    expect(r.isError).toBe(true);
+  });
+
+  it("does not offer vale gás in the system prompt and says it is not accepted", () => {
+    expect(SYSTEM_PROMPT).not.toMatch(/ou vale gás\)/);
+    expect(SYSTEM_PROMPT).toContain("vale gás ainda não é aceito");
   });
 });

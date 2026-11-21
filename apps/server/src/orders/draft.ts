@@ -33,7 +33,6 @@ export const PAYMENT_LABELS: Record<PaymentType, string> = {
   MONEY: "Dinheiro",
   CARTAO_DE_CREDITO: "Cartão de crédito",
   CARTAO_DE_DEBITO: "Cartão de débito",
-  VALEGAS: "Vale Gás",
 };
 
 const ADDRESS_FIELDS: [keyof DraftAddress, string][] = [
