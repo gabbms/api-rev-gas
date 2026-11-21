@@ -92,6 +92,9 @@ Os testes não chamam a IA nem a RevGás: usam um cliente RevGás em memória e 
 Para conferir a leitura real da RevGás (só leitura: produtos, acordos e a busca de cliente):
 `pnpm --filter server exec tsx scripts/smoke-read.ts 86999998888`.
 
+Para conferir a configuração que depende da RevGás e se o token alcança cada rota (só `GET`):
+`pnpm --filter server preflight`.
+
 ## Variáveis que mudam o comportamento
 
 | Variável | Padrão | O que faz |
@@ -100,6 +103,8 @@ Para conferir a leitura real da RevGás (só leitura: produtos, acordos e a busc
 | `REVGAS_CUSTOMERS_ENABLED` | `false` | Com `true`, `buscar_cliente` também consulta `GET /customers?phone=` depois do perfil local e preenche o `customer_id` da venda quando acha exatamente um cliente. Um 403 é tratado como "cliente não identificado" e nunca derruba a conversa. Deixe `false` até a RevGás liberar a leitura de clientes para o token. |
 | `REVGAS_BROADCAST` | `NONE` | `NEW_SALE` pode notificar entregadores reais. Só mude com autorização da RevGás. |
 | `REVGAS_ESTABLISHMENT_ID` | `2580` | Estabelecimento das vendas, dos produtos e dos acordos de preço. |
+| `REVGAS_VALEGAS_ENABLED` | `false` | Com `true`, o bot aceita Vale Gás: pede o código do cupom, envia em `payments[].serial` e mostra no resumo só o final ("Vale Gás (cupom final 1234)"). O produto precisa ter acordo para Vale Gás. |
+| `REVGAS_PRICE_PRIORITY` | `false` | Com `true` e o cliente identificado na RevGás (exige `REVGAS_CUSTOMERS_ENABLED=true`), o preço vem do acordo do cliente, senão do acordo da categoria dele (`tag_id`), senão do acordo geral. O rascunho guarda de qual acordo veio cada preço. |
 | `REVGAS_PRODUCT_IDS` | vazio | Lista de ids separados por vírgula. Preenchida, o bot só oferece esses produtos e os vasilhames ligados a eles (o 2580 tem vários "GLP 13KG TESTE" que confundem a IA). Exemplo no `.env.example`: `23740,23974,24141` (GLP 13kg, GLP 45kg e água 10L). |
 
 ### `REVGAS_WRITE_ENABLED` — por que está `false`
@@ -153,4 +158,22 @@ Também vale mostrar: mudar o pedido depois do resumo ("na verdade são 2") gera
 7. Vemos vendas `WHATSAPP` recentes no 2580 (12 neste mês, várias canceladas). Há outra integração
    testando nesse estabelecimento?
 8. Como enviar o pagamento em **Vale Gás** em `POST /sales`? O código do cupom vai em `payments[].serial`
-   ou em outro campo? Até sabermos, o bot não aceita vale gás.
+   ou em outro campo? Até sabermos, o Vale Gás fica desligado (`REVGAS_VALEGAS_ENABLED=false`).
+
+## Checklist para produção
+
+Antes e depois de mudar qualquer variável abaixo, rode `pnpm --filter server preflight`. Ele mostra o valor
+de cada opção, avisa das combinações arriscadas e testa (só leitura) as rotas que o bot usa.
+
+| Pergunta | Resposta que libera | O que muda | Variável |
+|---|---|---|---|
+| 1. Leitura de clientes | "Sim, o token pode ler `/customers`" | O bot identifica o cliente na RevGás, preenche o `customer_id` da venda e lê a categoria dele. O preflight deve mostrar `GET /customers 200`. | `REVGAS_CUSTOMERS_ENABLED=true` |
+| 2. Servidor de homologação | "Sim, podem usar a homologação para testar vendas" | Testes de venda real sem tocar na produção. | `REVGAS_BASE_URL=https://apihomologacao.revgas.com/v1` e, só nele, `REVGAS_WRITE_ENABLED=true` |
+| 3. Vendas de teste no 2580 | "Sim, podem criar e cancelar vendas no 2580" | O bot cria vendas reais no ERP (fim da venda simulada). | `REVGAS_WRITE_ENABLED=true` (com `REVGAS_BROADCAST=NONE` até a pergunta 6) |
+| 4. Prioridade de preço | "Sim, `CUSTOMER` > `TAG` > `PAYMENT_TYPE`, cobrando o `suggested_value`" | Clientes com acordo próprio ou de categoria pagam o preço deles. Só funciona com a pergunta 1 liberada. | `REVGAS_PRICE_PRIORITY=true` |
+| 5. Campos obrigatórios de `POST /sales` | A lista de campos | Ajuste no `buildDraft`/`toSalePayload` se faltar algum (hoje o endereço completo é exigido). | nenhuma (mudança de código) |
+| 6. `broadcast: NEW_SALE` | "Notifica, e podem usar" | As vendas do bot avisam o entregador pelo aplicativo. | `REVGAS_BROADCAST=NEW_SALE` (só com escrita ligada) |
+| 7. Outra integração no 2580 | Quem é e se há conflito | Nada no código; evita confundir as vendas de teste delas com as nossas. | nenhuma |
+| 8. Vale Gás | "O código do cupom vai em `payments[].serial`" (ou outro campo) | O bot aceita Vale Gás e pede o código. Se o campo for outro, muda o `toSalePayload`. | `REVGAS_VALEGAS_ENABLED=true` |
+
+Também: escolha os produtos que o bot oferece em `REVGAS_PRODUCT_IDS` (o preflight avisa quando está vazio).
