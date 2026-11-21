@@ -40,6 +40,12 @@ describe("loadConfig", () => {
     expect(loadConfig({ ...required, REVGAS_CUSTOMERS_ENABLED: "1" }).revgasCustomersEnabled).toBe(false);
   });
 
+  it("reads REVGAS_PRODUCT_IDS as an optional list of product ids", () => {
+    expect(loadConfig({ ...required }).revgasProductIds).toBeNull();
+    expect(loadConfig({ ...required, REVGAS_PRODUCT_IDS: " 23740, 23974 ,24141" }).revgasProductIds).toEqual([23740, 23974, 24141]);
+    expect(() => loadConfig({ ...required, REVGAS_PRODUCT_IDS: "23740,abc" })).toThrow(/REVGAS_PRODUCT_IDS/);
+  });
+
   it("never includes variable values in the error message", () => {
     const env = {
       DATABASE_URL: "postgres://leaky-db-value",

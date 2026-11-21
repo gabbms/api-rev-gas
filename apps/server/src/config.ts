@@ -15,6 +15,10 @@ const envSchema = z.object({
     .default(2580),
   REVGAS_WRITE_ENABLED: z.string().optional(),
   REVGAS_CUSTOMERS_ENABLED: z.string().optional(),
+  REVGAS_PRODUCT_IDS: z
+    .string()
+    .regex(/^\s*\d+(\s*,\s*\d+)*\s*$/, { error: "REVGAS_PRODUCT_IDS deve ser uma lista de ids separados por vírgula" })
+    .optional(),
   REVGAS_BROADCAST: z.enum(["NONE", "NEW_SALE"], { error: "REVGAS_BROADCAST deve ser NONE ou NEW_SALE" }).default("NONE"),
   ANTHROPIC_MODEL: z.string().min(1).default("claude-opus-5-5"),
   ANTHROPIC_EFFORT: z.enum(["low", "medium", "high"], { error: "ANTHROPIC_EFFORT deve ser low, medium ou high" }).default("medium"),
@@ -30,6 +34,8 @@ export type AppConfig = {
   revgasWriteEnabled: boolean;
   /** C1: query RevGás /customers (403 for the current token) after the local profile. */
   revgasCustomersEnabled: boolean;
+  /** Only these products (and their cylinders) are offered; null = every product with a deal. */
+  revgasProductIds: number[] | null;
   revgasBroadcast: "NONE" | "NEW_SALE";
   anthropicApiKey: string;
   anthropicModel: string;
@@ -58,6 +64,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     revgasEstablishmentId: e.REVGAS_ESTABLISHMENT_ID,
     revgasWriteEnabled: e.REVGAS_WRITE_ENABLED === "true",
     revgasCustomersEnabled: e.REVGAS_CUSTOMERS_ENABLED === "true",
+    revgasProductIds: e.REVGAS_PRODUCT_IDS ? e.REVGAS_PRODUCT_IDS.split(",").map((s) => Number(s.trim())) : null,
     revgasBroadcast: e.REVGAS_BROADCAST,
     anthropicApiKey: e.ANTHROPIC_API_KEY,
     anthropicModel: e.ANTHROPIC_MODEL,

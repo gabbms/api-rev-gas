@@ -99,6 +99,56 @@ describe("Catalog (C2: prices from /deals)", () => {
   });
 });
 
+describe("Catalog — REVGAS_PRODUCT_IDS", () => {
+  it("offers only the listed products and their cylinders", async () => {
+    fake.products.push({ id: 24141, description: "AGUA 10L", inactive: false, establishment_id: 2580 });
+    fake.deals.push(deal(24141, "PIX", 15), deal(2, "PIX", 1));
+    const catalog = new Catalog(fake, 2580, 1000, now, [23740]);
+    expect((await catalog.list()).map((p) => p.productId)).toEqual([23740, 23741]);
+  });
+
+  it("offers everything with a deal when the list is empty", async () => {
+    const catalog = new Catalog(fake, 2580, 1000, now, null);
+    expect((await catalog.list()).map((p) => p.productId)).toEqual([23740, 23741]);
+  });
+});
+
+describe("Catalog — stale-while-revalidate", () => {
+  it("returns the old prices right away after the TTL and refreshes in the background", async () => {
+    const catalog = new Catalog(fake, 2580, 1000, now);
+    expect((await catalog.get(23741))?.pricesCents.PIX).toBe(1000);
+    fake.deals.find((d) => d.product_id === 23741)!.suggested_value = 12;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const original = fake.listDeals.bind(fake);
+    vi.spyOn(fake, "listDeals").mockImplementation(async (id) => {
+      await gate;
+      return original(id);
+    });
+    t = 1000;
+    expect((await catalog.get(23741))?.pricesCents.PIX).toBe(1000); // did not wait for the reload
+    release();
+    await vi.waitFor(async () => expect((await catalog.get(23741))?.pricesCents.PIX).toBe(1200));
+  });
+
+  it("keeps the old cache and logs when the background reload fails", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const catalog = new Catalog(fake, 2580, 1000, now);
+    await catalog.list();
+    vi.spyOn(fake, "listDeals").mockRejectedValue(new Error("rede caiu"));
+    t = 1000;
+    expect((await catalog.get(23741))?.pricesCents.PIX).toBe(1000);
+    await vi.waitFor(() => expect(error).toHaveBeenCalled());
+    expect((await catalog.get(23741))?.pricesCents.PIX).toBe(1000);
+    error.mockRestore();
+  });
+
+  it("blocks and throws only when there is no cache yet", async () => {
+    vi.spyOn(fake, "listDeals").mockRejectedValue(new Error("rede caiu"));
+    await expect(new Catalog(fake, 2580, 1000, now).list()).rejects.toThrow("rede caiu");
+  });
+});
+
 describe("referencePriceCents", () => {
   it("uses Pix, then cash, then the lowest price", () => {
     expect(referencePriceCents({ PIX: 100, MONEY: 90 })).toBe(100);
