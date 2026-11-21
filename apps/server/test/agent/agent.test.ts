@@ -478,6 +478,14 @@ describe("tools", () => {
     expect(SYSTEM_PROMPT).toContain("sem perguntar se é para incluir no anterior");
   });
 
+  it("reuses the last order's address and payment for a returning customer, saying what was kept", () => {
+    expect(SYSTEM_PROMPT).toContain("reaproveite o endereço (de buscar_cliente) e a forma de pagamento do último pedido");
+    expect(SYSTEM_PROMPT).toContain("chame montar_pedido assim que souber produto, quantidade e botijões vazios");
+    expect(SYSTEM_PROMPT).toContain("Mantive o endereço da Rua das Flores, 120, e o pagamento no Pix; se quiser mudar, é só falar.");
+    expect(SYSTEM_PROMPT).toContain("Sempre diga ao cliente qual forma de pagamento foi reaproveitada");
+    expect(SYSTEM_PROMPT).toContain("Cliente novo: pergunte tudo");
+  });
+
   it("calls an attendant to change or cancel a registered order only when the customer says so clearly", () => {
     expect(SYSTEM_PROMPT).toContain("pedir claramente para alterar ou cancelar um pedido já registrado");
     expect(SYSTEM_PROMPT).not.toContain("o cliente quiser cancelar ou alterar um pedido já registrado");
