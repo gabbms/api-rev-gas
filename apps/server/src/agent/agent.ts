@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { asc, eq } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
+import type { Db } from "../db/client.js";
 import { llmTurns } from "../db/schema.js";
 import { SYSTEM_PROMPT } from "./systemPrompt.js";
 import { runTool, toolDefinitions, type AgentDeps, type ToolContext } from "./tools.js";
@@ -9,6 +10,34 @@ export type { AgentDeps, ToolContext } from "./tools.js";
 const MAX_ITERATIONS = 8;
 
 type MessageParam = Anthropic.Beta.BetaMessageParam;
+
+/**
+ * A crash between storing an assistant tool_use and its tool_result leaves the history
+ * unreplayable. Returns the error results that close it (to be appended, never edited in).
+ */
+function pendingToolResults(last: { role: string; content?: unknown } | undefined) {
+  if (last?.role !== "assistant" || !Array.isArray(last.content)) return null;
+  const pending = (last.content as { type: string; id?: string }[]).filter((b) => b.type === "tool_use" && b.id);
+  if (pending.length === 0) return null;
+  console.warn(`[agente] ${pending.length} ferramenta(s) sem resultado no histórico; registrando "Execução interrompida"`);
+  return pending.map((b) => ({ type: "tool_result", tool_use_id: b.id!, content: "Execução interrompida", is_error: true }));
+}
+
+/**
+ * Appends a user turn with operator-side context (e.g. what happened with a human attendant),
+ * closing any pending tool_use first. Append-only.
+ */
+export async function appendContextTurn(db: Db, conversationId: string, text: string): Promise<void> {
+  const [last] = await db
+    .select({ role: llmTurns.role, content: llmTurns.content })
+    .from(llmTurns)
+    .where(eq(llmTurns.conversationId, conversationId))
+    .orderBy(desc(llmTurns.id))
+    .limit(1);
+  const closing = pendingToolResults(last);
+  if (closing) await db.insert(llmTurns).values({ conversationId, role: "user", content: closing });
+  await db.insert(llmTurns).values({ conversationId, role: "user", content: [{ type: "text", text }] });
+}
 
 /**
  * One customer message → model loop with tools. History in `llm_turns` is append-only:
@@ -31,19 +60,8 @@ export async function runAgentTurn(
     messages.push({ role, content } as MessageParam);
   };
 
-  // A crash between storing an assistant tool_use and its tool_result leaves the history
-  // unreplayable. Close it by appending error results (never editing stored turns).
-  const last = messages.at(-1);
-  if (last?.role === "assistant" && Array.isArray(last.content)) {
-    const pending = (last.content as { type: string; id?: string }[]).filter((b) => b.type === "tool_use" && b.id);
-    if (pending.length > 0) {
-      console.warn(`[agente] ${pending.length} ferramenta(s) sem resultado no histórico; registrando "Execução interrompida"`);
-      await append(
-        "user",
-        pending.map((b) => ({ type: "tool_result", tool_use_id: b.id!, content: "Execução interrompida", is_error: true })),
-      );
-    }
-  }
+  const closing = pendingToolResults(messages.at(-1));
+  if (closing) await append("user", closing);
 
   await append("user", customerText);
 

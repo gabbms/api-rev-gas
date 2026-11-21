@@ -1,5 +1,5 @@
-import { asc, desc, eq, max, sql } from "drizzle-orm";
-import { runAgentTurn, type AgentDeps, type ToolContext } from "../agent/agent.js";
+import { and, asc, desc, eq, gt, max, sql } from "drizzle-orm";
+import { appendContextTurn, runAgentTurn, type AgentDeps, type ToolContext } from "../agent/agent.js";
 import { conversations, messages } from "../db/schema.js";
 import { normalizePhone } from "../revgas/phone.js";
 
@@ -52,10 +52,31 @@ export class ConversationService {
   }
 
   async returnToBot(conversationId: string): Promise<void> {
-    await this.deps.db
-      .update(conversations)
-      .set({ mode: "bot", handoffReason: null, updatedAt: new Date() })
-      .where(eq(conversations.id, conversationId));
+    await this.enqueue(conversationId, async () => {
+      const conv = await this.get(conversationId);
+      if (conv.mode === "human") {
+        // The AI never saw the human period: hand it a summary (append-only).
+        const since = conv.handoffAt ?? conv.updatedAt;
+        const rows = await this.deps.db
+          .select({ author: messages.author, text: messages.text })
+          .from(messages)
+          .where(and(eq(messages.conversationId, conversationId), gt(messages.createdAt, since)))
+          .orderBy(asc(messages.createdAt), asc(messages.id));
+        const lines = rows
+          .filter((m) => m.author === "customer" || m.author === "attendant")
+          .map((m) => `${m.author === "customer" ? "Cliente" : "Atendente"}: ${m.text}`);
+        const text = [
+          `[Atendimento humano] A conversa ficou com um atendente${conv.handoffReason ? ` (motivo: ${conv.handoffReason})` : ""}.`,
+          ...(lines.length ? lines : ["Nenhuma mensagem trocada nesse período."]),
+          "A conversa voltou para você. Continue a partir daqui.",
+        ].join("\n");
+        await appendContextTurn(this.deps.db, conversationId, text);
+      }
+      await this.deps.db
+        .update(conversations)
+        .set({ mode: "bot", handoffReason: null, handoffAt: null, updatedAt: new Date() })
+        .where(eq(conversations.id, conversationId));
+    });
     this.onChange?.(conversationId);
   }
 
@@ -111,8 +132,10 @@ export class ConversationService {
   private async handoff(conversationId: string, phone: string, reason: string): Promise<void> {
     await this.deps.db
       .update(conversations)
-      .set({ mode: "human", handoffReason: reason, updatedAt: new Date() })
+      .set({ mode: "human", handoffReason: reason, handoffAt: new Date(), updatedAt: new Date() })
       .where(eq(conversations.id, conversationId));
+    // A "sim" sent while a human attends must not confirm the summary shown before.
+    await this.deps.orders.clearPresentation(conversationId);
     await this.deliver({ conversationId, phone, author: "bot", text: HANDOFF_TEXT });
     this.onChange?.(conversationId);
   }

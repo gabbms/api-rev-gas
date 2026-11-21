@@ -11,7 +11,8 @@ import {
   type RunTurn,
 } from "../../src/conversations/conversationService.js";
 import type { Db } from "../../src/db/client.js";
-import { conversations, messages } from "../../src/db/schema.js";
+import { asc } from "drizzle-orm";
+import { conversations, llmTurns, messages, orderDrafts } from "../../src/db/schema.js";
 import { OrderService } from "../../src/orders/orderService.js";
 import { FakeRevgasClient } from "../../src/revgas/fakeClient.js";
 import { resetTables, setupTestDb } from "../helpers/testDb.js";
@@ -175,5 +176,51 @@ describe("ConversationService", () => {
       return { replyText: null, events: ctx.events };
     }).handleCustomerMessage("86999998888", "oi");
     expect(seen).toBe(501);
+  });
+});
+
+describe("ConversationService — human period", () => {
+  const handoffTurn = replying(null, { handoff: { reason: "Cliente pediu humano" } });
+
+  it("clears the presented summary on handoff, so a 'sim' sent to the human does not confirm it", async () => {
+    const svc = service(replying("ok"));
+    await svc.handleCustomerMessage("86999998888", "oi");
+    const conv = await conversationByPhone("86999998888");
+    const [draft] = await db
+      .insert(orderDrafts)
+      .values({ conversationId: conv!.id, status: "open", payload: {}, totalCents: 1, presentedAt: new Date() })
+      .returning();
+
+    await service(handoffTurn).handleCustomerMessage("86999998888", "quero falar com uma pessoa");
+
+    const [row] = await db.select().from(orderDrafts).where(eq(orderDrafts.id, draft!.id));
+    expect(row?.presentedAt).toBeNull();
+  });
+
+  it("tells the AI what happened with the human when the conversation returns to the bot", async () => {
+    const svc = service(replying("Olá!"));
+    await svc.handleCustomerMessage("86999998888", "oi");
+    await service(handoffTurn).handleCustomerMessage("86999998888", "quero falar com uma pessoa");
+    const conv = await conversationByPhone("86999998888");
+    const humanSvc = service(replying("não devia"));
+    await humanSvc.handleCustomerMessage("86999998888", "meu gás veio vazado");
+    await humanSvc.attendantReply(conv!.id, "Vamos trocar hoje à tarde.");
+    const before = await db.select().from(llmTurns).where(eq(llmTurns.conversationId, conv!.id));
+
+    await humanSvc.returnToBot(conv!.id);
+
+    const turns = await db.select().from(llmTurns).where(eq(llmTurns.conversationId, conv!.id)).orderBy(asc(llmTurns.id));
+    expect(turns).toHaveLength(before.length + 1);
+    const last = turns.at(-1)!;
+    expect(last.role).toBe("user");
+    const blocks = last.content as { type: string; text: string }[];
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]!.type).toBe("text");
+    expect(blocks[0]!.text).toContain("[Atendimento humano]");
+    expect(blocks[0]!.text).toContain("Cliente: meu gás veio vazado");
+    expect(blocks[0]!.text).toContain("Atendente: Vamos trocar hoje à tarde.");
+    // Only what happened after the handoff.
+    expect(blocks[0]!.text).not.toContain("Cliente: oi");
+    expect(blocks[0]!.text).not.toContain("quero falar com uma pessoa");
   });
 });

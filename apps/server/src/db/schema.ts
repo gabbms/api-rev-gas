@@ -20,6 +20,8 @@ export const conversations = pgTable("conversations", {
   phone: text("phone").notNull().unique(),
   mode: text("mode", { enum: ["bot", "human"] }).notNull().default("bot"),
   handoffReason: text("handoff_reason"),
+  /** When the conversation went to a human; the summary for the AI starts here. */
+  handoffAt: timestamp("handoff_at", { withTimezone: true }),
   revgasCustomerId: bigint("revgas_customer_id", { mode: "number" }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),

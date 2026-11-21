@@ -77,6 +77,14 @@ export class OrderService {
       .where(and(eq(orderDrafts.id, draftId), eq(orderDrafts.status, "open")));
   }
 
+  /** The open draft no longer counts as presented: a new summary must be sent before a "sim". */
+  async clearPresentation(conversationId: string): Promise<void> {
+    await this.db
+      .update(orderDrafts)
+      .set({ presentedAt: null, updatedAt: new Date() })
+      .where(and(eq(orderDrafts.conversationId, conversationId), eq(orderDrafts.status, "open")));
+  }
+
   async confirm(conversationId: string): Promise<ConfirmResult> {
     const draft = await this.findDraft(conversationId, "open");
     if (!draft) {

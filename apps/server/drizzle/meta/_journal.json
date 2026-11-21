@@ -36,6 +36,13 @@
       "when": 1795219782093,
       "tag": "0004_yielding_dreadnoughts",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795219842324,
+      "tag": "0005_curious_hitman",
+      "breakpoints": true
     }
   ]
 }
