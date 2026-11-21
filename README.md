@@ -141,6 +141,17 @@ painel de atendimento.
 4. **Passagem para humano.** Envie "quero falar com uma pessoa". A conversa aparece à direita com o selo
    **Humano** e o motivo; o bot para de responder nessa conversa.
 5. **Atendente.** Abra a conversa à direita, responda como atendente e clique em **Devolver ao bot**.
+6. **Bastidores.** Com a conversa aberta, clique em **Ver bastidores**: entre as mensagens aparecem as
+   ferramentas que a IA chamou e o resultado resumido de cada uma ("3 produtos", "resumo gerado: R$ 160,00",
+   "venda 900000004 criada"). O raciocínio da IA e os dados brutos nunca aparecem.
+7. **Métricas.** Na aba **Métricas**: conversas atendidas, resolvidas só pelo bot e taxa de automação,
+   vendas e ticket médio (com o selo **simulado** enquanto a escrita está desligada), passagens para humano
+   por motivo, tempo médio de resposta do bot e do "oi" ao pedido registrado. O painel atualiza sozinho;
+   o dia segue o fuso de Fortaleza.
+
+**Antes de apresentar**, limpe os testes do banco de desenvolvimento com `pnpm --filter server demo:reset`.
+Ele pede para digitar `APAGAR`, recusa rodar com `REVGAS_WRITE_ENABLED=true` ou apontando para o banco de
+teste, e não chama a RevGás. Os números das vendas simuladas continuam crescendo (nunca se repetem).
 
 Também vale mostrar: mudar o pedido depois do resumo ("na verdade são 2") gera um resumo novo, e o
 "sim" anterior não vale para ele.
