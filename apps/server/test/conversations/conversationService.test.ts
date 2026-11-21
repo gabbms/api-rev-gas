@@ -224,3 +224,38 @@ describe("ConversationService — human period", () => {
     expect(blocks[0]!.text).not.toContain("quero falar com uma pessoa");
   });
 });
+
+describe("ConversationService — empty AI turn", () => {
+  const empty = replying(null);
+
+  it("asks the customer to repeat when the AI returns nothing", async () => {
+    await service(empty).handleCustomerMessage("86999998888", "hmm");
+    expect(sent.map((m) => m.text)).toEqual(["Desculpe, não entendi. Pode repetir?"]);
+    expect(await conversationByPhone("86999998888")).toMatchObject({ mode: "bot" });
+  });
+
+  it("hands off with 'IA sem resposta' on the second empty turn in a row", async () => {
+    const svc = service(empty);
+    await svc.handleCustomerMessage("86999998888", "hmm");
+    await svc.handleCustomerMessage("86999998888", "hmm?");
+    expect(sent.map((m) => m.text)).toEqual(["Desculpe, não entendi. Pode repetir?", HANDOFF_TEXT]);
+    expect(await conversationByPhone("86999998888")).toMatchObject({ mode: "human", handoffReason: "IA sem resposta" });
+  });
+
+  it("resets the count after a turn with an answer", async () => {
+    let n = 0;
+    const svc = service(async (ctx) => ({ replyText: n++ === 1 ? "Claro!" : null, events: ctx.events }));
+    for (const t of ["a", "b", "c"]) await svc.handleCustomerMessage("86999998888", t);
+    expect(sent.map((m) => m.text)).toEqual(["Desculpe, não entendi. Pode repetir?", "Claro!", "Desculpe, não entendi. Pode repetir?"]);
+    expect(await conversationByPhone("86999998888")).toMatchObject({ mode: "bot" });
+  });
+
+  it("does not treat a turn that only sends the summary as empty", async () => {
+    vi.spyOn(deps.orders, "markPresented").mockResolvedValue();
+    await service(replying(null, { draftPresentable: { draftId: "d", summaryText: "Resumo do pedido: ..." } })).handleCustomerMessage(
+      "86999998888",
+      "pix",
+    );
+    expect(sent.map((m) => m.text)).toEqual(["Resumo do pedido: ..."]);
+  });
+});

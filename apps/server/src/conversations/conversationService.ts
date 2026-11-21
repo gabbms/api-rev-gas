@@ -8,6 +8,7 @@ export type Outgoing = { conversationId: string; phone: string; author: "bot" | 
 export type RunTurn = typeof runAgentTurn;
 
 export const HANDOFF_TEXT = "Vou chamar um atendente para te ajudar. Só um instante!";
+export const EMPTY_TURN_TEXT = "Desculpe, não entendi. Pode repetir?";
 
 export type ConversationSummary = {
   id: string;
@@ -23,6 +24,8 @@ export type ConversationSummary = {
  */
 export class ConversationService {
   private readonly queues = new Map<string, Promise<void>>();
+  /** Consecutive AI turns with nothing to send, per conversation. */
+  private readonly emptyTurns = new Map<string, number>();
 
   constructor(
     private readonly deps: AgentDeps,
@@ -119,8 +122,22 @@ export class ConversationService {
       return;
     }
 
-    if (result.replyText) await this.deliver({ conversationId, phone, author: "bot", text: result.replyText });
     const draft = result.events.draftPresentable;
+    if (!result.replyText && !draft && !result.events.handoff) {
+      // Nothing to say: ask once, then hand off on the second empty turn in a row.
+      const empties = (this.emptyTurns.get(conversationId) ?? 0) + 1;
+      if (empties >= 2) {
+        this.emptyTurns.delete(conversationId);
+        await this.handoff(conversationId, phone, "IA sem resposta");
+      } else {
+        this.emptyTurns.set(conversationId, empties);
+        await this.deliver({ conversationId, phone, author: "bot", text: EMPTY_TURN_TEXT });
+      }
+      return;
+    }
+    this.emptyTurns.delete(conversationId);
+
+    if (result.replyText) await this.deliver({ conversationId, phone, author: "bot", text: result.replyText });
     if (draft) {
       await this.deliver({ conversationId, phone, author: "bot", text: draft.summaryText });
       // Only after the summary went out does it count as presented.
