@@ -8,6 +8,16 @@ import { parseWahaWebhook, type InboundMessage } from "./webhook.js";
 
 export const WEBHOOK_PATH = "/webhooks/waha";
 
+/**
+ * A mobile number with and without the ninth digit (WhatsApp keeps some old numbers without it).
+ * Only for mobiles: the 8-digit part starts with 6–9.
+ */
+export function ninthDigitVariants(phone: string): string[] {
+  if (phone.length === 10 && /[6-9]/.test(phone[2]!)) return [phone, `${phone.slice(0, 2)}9${phone.slice(2)}`];
+  if (phone.length === 11 && phone[2] === "9" && /[6-9]/.test(phone[3]!)) return [phone, `${phone.slice(0, 2)}${phone.slice(3)}`];
+  return [phone];
+}
+
 export type WahaWebhookServer = FastifyInstance & {
   /** Resolves once every message received so far has been handled (for tests and shutdown). */
   idle(): Promise<void>;
@@ -37,7 +47,8 @@ export function buildWahaWebhookServer(deps: {
     const fresh = await db.insert(inboundEvents).values({ id: m.id }).onConflictDoNothing().returning({ id: inboundEvents.id });
     if (fresh.length === 0) return; // repeated webhook
     const allowed = cfg.whatsappAllowedNumbers;
-    if (allowed && !allowed.includes(normalizePhone(m.from) ?? "")) {
+    const phone = normalizePhone(m.from);
+    if (allowed && !(phone && ninthDigitVariants(phone).some((p) => allowed.includes(p)))) {
       console.info("[whatsapp] número fora de WHATSAPP_ALLOWED_NUMBERS; mensagem ignorada");
       return;
     }

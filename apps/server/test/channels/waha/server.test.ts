@@ -113,6 +113,15 @@ describe("WAHA webhook server", () => {
     info.mockRestore();
   });
 
+  it("matches the allowed list with or without the ninth digit", async () => {
+    await app.close();
+    build({ WHATSAPP_ALLOWED_NUMBERS: "86994264580, 8633334444" });
+    await post(event({ id: "a", from: "558694264580@c.us" }));
+    await post(event({ id: "b", from: "5586933334444@c.us" }));
+    await app.idle();
+    expect(received.map((m) => m.from)).toEqual(["558694264580"]);
+  });
+
   it("ignores our own messages and groups, still answering 200", async () => {
     expect((await post(event({ fromMe: true }))).statusCode).toBe(200);
     expect((await post(event({ id: "g", from: "1203@g.us" }))).statusCode).toBe(200);

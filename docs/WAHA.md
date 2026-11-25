@@ -129,8 +129,9 @@ no painel (aba **Atendimento**) com o selo **WhatsApp**. O roteiro completo est�
   o WAHA não souber, a mensagem é descartada. Confira se a sessão está **WORKING** e peça para a
   pessoa mandar de novo.
 - **Número sem o nono dígito.** Alguns números antigos aparecem no WhatsApp sem o 9. Antes de
-  responder, o bot pergunta ao WAHA qual é o endereço certo do contato. Na lista de permitidos e no
-  painel, o número aparece como o WhatsApp mandou (às vezes sem o 9).
+  responder, o bot pergunta ao WAHA qual é o endereço certo do contato. Na lista de permitidos, escreva
+  o número normal (com o 9): ele vale com ou sem o 9. No painel, o número aparece como o WhatsApp
+  mandou (às vezes sem o 9).
 - **No painel, "não entregue" numa resposta.** O WAHA não aceitou a mensagem (sessão caiu, chave
   errada, WAHA fora do ar). Veja o terminal do servidor e o status da sessão no painel do WAHA.
 - **O chat simulado diz "Esta conversa é do WhatsApp; responda pelo painel".** É de propósito: o
