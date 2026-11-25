@@ -304,6 +304,26 @@ describe("buildDraft — Vale Gás coupon", () => {
     expect(r.summaryText).not.toContain("9988776655441234");
   });
 
+  it("tells the customer there is nothing to pay on delivery when Vale Gás covers it all", () => {
+    const r = ok(buildDraft(input({ payments: [{ type: "VALEGAS", couponCode: "1234" }] }), withVg, null, 10));
+    const lines = r.summaryText.split("\n");
+    const at = lines.indexOf("Pagamento: Vale Gás (cupom final 1234)");
+    expect(lines[at + 1]).toBe("Nada a pagar na entrega: o valor é coberto pelo vale.");
+  });
+
+  it("says only the remainder is paid on delivery when Vale Gás covers part", () => {
+    const r = ok(
+      buildDraft(input({ payments: [{ type: "VALEGAS", couponCode: "1234", amountCents: 10000 }, { type: "PIX" }] }), withVg, null, 10),
+    );
+    expect(r.summaryText).toContain("Na entrega, só R$ 10,00; o restante é coberto pelo vale.");
+    expect(r.summaryText).not.toContain("Nada a pagar");
+  });
+
+  it("adds no delivery note without Vale Gás", () => {
+    const r = ok(buildDraft(input(), withVg, null, 10));
+    expect(r.summaryText).not.toMatch(/coberto pelo vale|Nada a pagar/);
+  });
+
   it("sends the coupon code in payments[].serial", () => {
     const r = ok(buildDraft(input({ payments: [{ type: "VALEGAS", couponCode: "9988776655441234" }] }), withVg, null, 10));
     expect(toSalePayload(r.data, 2580, "NONE").payments).toEqual([{ payment_type: "VALEGAS", value: 110, serial: "9988776655441234" }]);

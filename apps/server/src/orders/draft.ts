@@ -216,6 +216,14 @@ function fillPayments(
   return payments;
 }
 
+/** A Vale Gás coupon is already paid: tell the customer what is left to pay on delivery. */
+function valeGasNote(d: DraftData): string[] {
+  const covered = d.payments.filter((p) => p.type === "VALEGAS").reduce((s, p) => s + (p.amountCents ?? 0), 0);
+  if (covered === 0) return [];
+  const rest = d.totalCents - covered;
+  return [rest > 0 ? `Na entrega, só ${formatCents(rest)}; o restante é coberto pelo vale.` : "Nada a pagar na entrega: o valor é coberto pelo vale."];
+}
+
 function summarize(d: DraftData): string {
   const a = d.address;
   const extras = [a.complement, a.landmark ? `ref.: ${a.landmark}` : undefined].filter(Boolean);
@@ -229,6 +237,7 @@ function summarize(d: DraftData): string {
     ...d.lines.map((l) => `• ${l.quantity}x ${l.description} — ${formatCents(l.totalCents)}`),
     `Total: ${formatCents(d.totalCents)}`,
     `Pagamento: ${payment}`,
+    ...valeGasNote(d),
     `Entrega: ${street} – ${a.neighborhood}, ${a.city}/${a.state}`,
     ...(d.observation ? [`Obs.: ${d.observation}`] : []),
     "Posso registrar o pedido? Responda *sim* para confirmar ou me diga o que mudar.",
