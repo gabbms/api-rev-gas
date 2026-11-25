@@ -21,6 +21,13 @@ const envSchema = z.object({
     .string()
     .regex(/^\s*\d+(\s*,\s*\d+)*\s*$/, { error: "REVGAS_PRODUCT_IDS deve ser uma lista de ids separados por vírgula" })
     .optional(),
+  DEFAULT_CITY: z.string().trim().min(1).default("Teresina"),
+  DEFAULT_STATE: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z]{2}$/, { error: "DEFAULT_STATE deve ser a sigla do estado (ex.: PI)" })
+    .transform((s) => s.toUpperCase())
+    .default("PI"),
   REVGAS_BROADCAST: z.enum(["NONE", "NEW_SALE"], { error: "REVGAS_BROADCAST deve ser NONE ou NEW_SALE" }).default("NONE"),
   ANTHROPIC_MODEL: z.string().min(1).default("claude-opus-5-5"),
   ANTHROPIC_EFFORT: z.enum(["low", "medium", "high"], { error: "ANTHROPIC_EFFORT deve ser low, medium ou high" }).default("medium"),
@@ -43,6 +50,9 @@ export type AppConfig = {
   /** Only these products (and their cylinders) are offered; null = every product with a deal. */
   revgasProductIds: number[] | null;
   revgasBroadcast: "NONE" | "NEW_SALE";
+  /** Delivery city/state assumed when the customer does not say another. */
+  defaultCity: string;
+  defaultState: string;
   anthropicApiKey: string;
   anthropicModel: string;
   anthropicEffort: "low" | "medium" | "high";
@@ -74,6 +84,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     revgasPricePriority: e.REVGAS_PRICE_PRIORITY === "true",
     revgasProductIds: e.REVGAS_PRODUCT_IDS ? e.REVGAS_PRODUCT_IDS.split(",").map((s) => Number(s.trim())) : null,
     revgasBroadcast: e.REVGAS_BROADCAST,
+    defaultCity: e.DEFAULT_CITY,
+    defaultState: e.DEFAULT_STATE,
     anthropicApiKey: e.ANTHROPIC_API_KEY,
     anthropicModel: e.ANTHROPIC_MODEL,
     anthropicEffort: e.ANTHROPIC_EFFORT,

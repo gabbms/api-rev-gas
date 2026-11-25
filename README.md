@@ -105,6 +105,7 @@ Para conferir a configuração que depende da RevGás e se o token alcança cada
 | `REVGAS_ESTABLISHMENT_ID` | `2580` | Estabelecimento das vendas, dos produtos e dos acordos de preço. |
 | `REVGAS_VALEGAS_ENABLED` | `false` | Com `true`, o bot aceita Vale Gás: pede o código do cupom, envia em `payments[].serial` e mostra no resumo só o final ("Vale Gás (cupom final 1234)"). O produto precisa ter acordo para Vale Gás. |
 | `REVGAS_PRICE_PRIORITY` | `false` | Com `true` e o cliente identificado na RevGás (exige `REVGAS_CUSTOMERS_ENABLED=true`), o preço vem do acordo do cliente, senão do acordo da categoria dele (`tag_id`), senão do acordo geral. O rascunho guarda de qual acordo veio cada preço. |
+| `DEFAULT_CITY` / `DEFAULT_STATE` | `Teresina` / `PI` | Cidade e UF de entrega usadas quando o cliente não diz outra. O bot não pergunta cidade nem estado; o resumo mostra a cidade e o cliente pode corrigir. |
 | `REVGAS_PRODUCT_IDS` | vazio | Lista de ids separados por vírgula. Preenchida, o bot só oferece esses produtos e os vasilhames ligados a eles (o 2580 tem vários "GLP 13KG TESTE" que confundem a IA). Exemplo no `.env.example`: `23740,23974,24141` (GLP 13kg, GLP 45kg e água 10L). |
 
 ### `REVGAS_WRITE_ENABLED` — por que está `false`

@@ -536,6 +536,21 @@ describe("tools", () => {
     expect(SYSTEM_PROMPT).toContain("Cliente novo: pergunte tudo");
   });
 
+  it("uses the default city and state without asking, unless the customer says another", () => {
+    expect(SYSTEM_PROMPT).toContain("A cidade de entrega padrão é Teresina/PI");
+    expect(SYSTEM_PROMPT).toContain("não pergunte cidade nem estado");
+    expect(SYSTEM_PROMPT).not.toContain("bairro, cidade, estado;");
+    const other = systemPromptFor({ ...cfg, defaultCity: "Parnaíba", defaultState: "PI" });
+    expect(other).toContain("A cidade de entrega padrão é Parnaíba/PI");
+    expect(other).not.toContain("Teresina");
+  });
+
+  it("asks which gas size when the customer does not say, without suggesting one", () => {
+    expect(SYSTEM_PROMPT).not.toContain('Se o cliente pedir "um botijão" ou "um P13", é o GLP 13 kg.');
+    expect(SYSTEM_PROMPT).toContain("pergunte qual tamanho ele quer, citando as opções da lista, sem sugerir nem presumir um");
+    expect(SYSTEM_PROMPT).toContain('"P13" é o GLP 13 kg e "P45" é o GLP 45 kg');
+  });
+
   it("calls an attendant to change or cancel a registered order only when the customer says so clearly", () => {
     expect(SYSTEM_PROMPT).toContain("pedir claramente para alterar ou cancelar um pedido já registrado");
     expect(SYSTEM_PROMPT).not.toContain("o cliente quiser cancelar ou alterar um pedido já registrado");

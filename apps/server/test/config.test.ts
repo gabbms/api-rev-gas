@@ -46,6 +46,14 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...required, REVGAS_PRODUCT_IDS: "23740,abc" })).toThrow(/REVGAS_PRODUCT_IDS/);
   });
 
+  it("reads the default delivery city and state, Teresina/PI unless set", () => {
+    const d = loadConfig({ ...required });
+    expect([d.defaultCity, d.defaultState]).toEqual(["Teresina", "PI"]);
+    const o = loadConfig({ ...required, DEFAULT_CITY: " Parnaíba ", DEFAULT_STATE: "pi" });
+    expect([o.defaultCity, o.defaultState]).toEqual(["Parnaíba", "PI"]);
+    expect(() => loadConfig({ ...required, DEFAULT_STATE: "Piauí" })).toThrow(/DEFAULT_STATE/);
+  });
+
   it("keeps Vale Gás and price priority off unless set to exactly 'true'", () => {
     const off = loadConfig({ ...required });
     expect([off.revgasValegasEnabled, off.revgasPricePriority]).toEqual([false, false]);
