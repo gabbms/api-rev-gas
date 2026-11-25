@@ -7,3 +7,6 @@ dist/
 coverage/
 .vite/
 .superpowers/
+
+# Instruções locais do assistente (não versionar)
+CLAUDE.md
