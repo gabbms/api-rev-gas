@@ -31,7 +31,12 @@ export function buildWahaWebhookServer(deps: {
   cfg: AppConfig;
   db: Db;
   resolveLid: (lid: string) => Promise<string | undefined>;
-  onInbound: (m: InboundMessage) => Promise<void>;
+  /**
+   * `receivedAt`: when the POST arrived (app clock). The sender's queue may hold a message while the
+   * previous one is answered; storing it with this time keeps a "sim" sent mid-turn from counting as
+   * a reply to a summary presented later.
+   */
+  onInbound: (m: InboundMessage, receivedAt: Date) => Promise<void>;
 }): WahaWebhookServer {
   const { cfg, db } = deps;
   const secret = cfg.wahaWebhookSecret;
@@ -43,7 +48,7 @@ export function buildWahaWebhookServer(deps: {
   // One sender's messages are handled in arrival order; different senders do not wait for each other.
   const perSender = new Map<string, Promise<void>>();
 
-  async function take(m: InboundMessage): Promise<void> {
+  async function take(m: InboundMessage, receivedAt: Date): Promise<void> {
     const fresh = await db.insert(inboundEvents).values({ id: m.id }).onConflictDoNothing().returning({ id: inboundEvents.id });
     if (fresh.length === 0) return; // repeated webhook
     const allowed = cfg.whatsappAllowedNumbers;
@@ -52,7 +57,7 @@ export function buildWahaWebhookServer(deps: {
       console.info("[whatsapp] número fora de WHATSAPP_ALLOWED_NUMBERS; mensagem ignorada");
       return;
     }
-    await deps.onInbound(m);
+    await deps.onInbound(m, receivedAt);
   }
 
   function schedule(key: string, job: () => Promise<void>): void {
@@ -74,9 +79,10 @@ export function buildWahaWebhookServer(deps: {
   };
 
   app.post(WEBHOOK_PATH, { onRequest: checkSecret }, async (req, reply) => {
+    const receivedAt = new Date();
     const { messages, lids } = parseWahaWebhook(req.body);
     // Answer 200 right away; the work goes on in the background.
-    for (const m of messages) schedule(m.from, () => take(m));
+    for (const m of messages) schedule(m.from, () => take(m, receivedAt));
     for (const { lid, message } of lids) {
       schedule(lid, async () => {
         const from = await deps.resolveLid(lid);
@@ -84,7 +90,7 @@ export function buildWahaWebhookServer(deps: {
           console.warn("[whatsapp] contato @lid sem telefone; mensagem ignorada");
           return;
         }
-        await take({ ...message, from });
+        await take({ ...message, from }, receivedAt);
       });
     }
     return reply.code(200).send();

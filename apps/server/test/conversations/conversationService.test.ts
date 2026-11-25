@@ -384,6 +384,27 @@ describe("ConversationService — WhatsApp options and the confirmation gate", (
     deps = { ...deps, catalog, revgas: fake, orders: new OrderService(db, catalog, fake, cfg) };
   });
 
+  it("Review Focus 1 (audio plan): a 'Confirmar' that arrived while the AI was still building the summary does not confirm it", async () => {
+    const svc = new ConversationService(deps, createOutgoingRouter({ db, hub, whatsapp: wa }), undefined, ai);
+    const arrivedDuringTurn = new Date();
+    await new Promise((r) => setTimeout(r, 5));
+    await say(svc, "quero 1 botijão, pix"); // presents the summary at T1, after arrivedDuringTurn
+    await svc.handleInbound({
+      channel: "whatsapp", address: "5586999998888", rawPhone: "5586999998888", text: "Confirmar", kind: "text", receivedAt: arrivedDuringTurn,
+    });
+    const conv = await conversationByPhone("86999998888");
+    const stored = (await svc.history(conv!.id)).find((m) => m.text === "Confirmar");
+    expect(stored?.createdAt.getTime()).toBe(arrivedDuringTurn.getTime());
+    expect(confirmResults).toEqual([{ kind: "not_ready", reason: "no_reply_after_summary" }]);
+    expect(fake.sales).toHaveLength(0);
+
+    await svc.handleInbound({
+      channel: "whatsapp", address: "5586999998888", rawPhone: "5586999998888", text: "Confirmar", kind: "text", receivedAt: new Date(),
+    });
+    expect(confirmResults.at(-1)).toEqual({ kind: "created", saleId: expect.any(Number) });
+    expect(fake.sales).toHaveLength(1);
+  });
+
   it("'Confirmar' tapped on the presented summary creates the sale", async () => {
     const svc = new ConversationService(deps, createOutgoingRouter({ db, hub, whatsapp: wa }), undefined, ai);
     await say(svc, "quero 1 botijão, pix");

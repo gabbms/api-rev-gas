@@ -70,6 +70,47 @@ describe("WAHA webhook server", () => {
     expect(received).toEqual([expect.objectContaining({ id: "false_5586999998888@c.us_AAA", from: "5586999998888", text: "oi", kind: "text" })]);
   });
 
+  it("stamps each message with the time its POST arrived, even while the sender's previous one is still being handled", async () => {
+    await app.close();
+    let release!: () => void;
+    const firstDone = new Promise<void>((r) => (release = r));
+    const stamps: { id: string; receivedAt: Date }[] = [];
+    app = buildWahaWebhookServer({
+      cfg: loadConfig(base),
+      db,
+      resolveLid,
+      onInbound: async (m, receivedAt) => {
+        stamps.push({ id: m.id, receivedAt });
+        if (m.id === "first") await firstDone;
+      },
+    });
+    await post(event({ id: "first" }));
+    await vi.waitFor(() => expect(stamps).toHaveLength(1));
+    await post(event({ id: "second", body: "sim" }));
+    await new Promise((r) => setTimeout(r, 10));
+    const releasedAt = new Date();
+    release();
+    await app.idle();
+    expect(stamps.map((s) => s.id)).toEqual(["first", "second"]);
+    expect(stamps[1]!.receivedAt.getTime()).toBeLessThan(releasedAt.getTime());
+  });
+
+  it("an @lid message keeps the time its POST arrived", async () => {
+    await app.close();
+    const stamps: Date[] = [];
+    resolveLid.mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      return "5586911112222";
+    });
+    app = buildWahaWebhookServer({ cfg: loadConfig(base), db, resolveLid, onInbound: async (_m, at) => void stamps.push(at) });
+    const before = Date.now();
+    await post(event({ from: "123@lid" }));
+    const after = Date.now();
+    await app.idle();
+    expect(stamps[0]!.getTime()).toBeGreaterThanOrEqual(before);
+    expect(stamps[0]!.getTime()).toBeLessThanOrEqual(after);
+  });
+
   it("Review Focus 1: the same event twice runs once", async () => {
     await post(event());
     await post(event());

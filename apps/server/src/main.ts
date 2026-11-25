@@ -61,8 +61,8 @@ const webhook = waha
       cfg,
       db,
       resolveLid: createWahaLidResolver(waha),
-      onInbound: (m) =>
-        conversations.handleInbound({ channel: "whatsapp", address: m.from, rawPhone: m.from, text: m.text, kind: m.kind }),
+      onInbound: (m, receivedAt) =>
+        conversations.handleInbound({ channel: "whatsapp", address: m.from, rawPhone: m.from, text: m.text, kind: m.kind, receivedAt }),
     })
   : null;
 if (webhook) {

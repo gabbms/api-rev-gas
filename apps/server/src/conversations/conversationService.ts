@@ -24,6 +24,8 @@ export type Inbound = {
   text: string;
   /** Not text (audio, image, sticker…): fixed reply, the AI is not called. */
   kind?: "text" | "unsupported";
+  /** When the message reached us (WhatsApp: the webhook POST). Defaults to now. */
+  receivedAt?: Date;
 };
 
 export type RunTurn = typeof runAgentTurn;
@@ -81,9 +83,11 @@ export class ConversationService {
     // Typing in the simulated chat must never reach a real WhatsApp customer.
     if (m.channel === "simulated" && conv.channel === "whatsapp") throw new ChannelMismatchError();
     // Timestamps use the app clock, same as presentedAt (the DB/Docker clock may drift).
-    // Stored on arrival, so its timestamp reflects when the customer actually wrote it
-    // (relative to when a summary was presented).
-    await this.deps.db.insert(messages).values({ conversationId: conv.id, author: "customer", text: m.text, createdAt: new Date() });
+    // Stored with the arrival time, so it reflects when the customer actually wrote it relative to
+    // when a summary was presented, even if it waited in the sender's queue.
+    await this.deps.db
+      .insert(messages)
+      .values({ conversationId: conv.id, author: "customer", text: m.text, createdAt: m.receivedAt ?? new Date() });
     this.onChange?.(conv.id);
     if (m.kind === "unsupported") {
       await this.enqueue(conv.id, async () => {

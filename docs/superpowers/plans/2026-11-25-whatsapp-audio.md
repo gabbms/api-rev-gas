@@ -63,7 +63,7 @@ a partir dele. Perguntar ao usuário.
 - `Inbound` ganha `receivedAt?: Date`; `handleInbound` grava `createdAt: m.receivedAt ?? new Date()`.
 - `main.ts` repassa `receivedAt`.
 
-- [ ] **Step 1: Testes que falham** —
+- [x] **Step 1: Testes que falham** —
   - server: dois POSTs do mesmo remetente; o `onInbound` do primeiro fica pendurado (promessa controlada). O
     segundo chega antes de o primeiro terminar e o `receivedAt` dele é anterior ao momento em que o
     primeiro é liberado.
@@ -71,8 +71,8 @@ a partir dele. Perguntar ao usuário.
     resumo (`presentedAt = T1`), uma mensagem B "sim" com `receivedAt < T1` é gravada com esse horário, e
     `OrderService.confirm` responde `not_ready` para esse resumo. Uma mensagem C com `receivedAt > T1`
     libera a confirmação.
-- [ ] **Step 2:** FAIL. **Step 3:** implementar. **Step 4:** PASS (e a suíte toda).
-- [ ] **Step 5:** Commit `fix: store WhatsApp messages with the time the webhook arrived`.
+- [x] **Step 2:** FAIL. **Step 3:** implementar. **Step 4:** PASS (e a suíte toda).
+- [x] **Step 5:** Commit `fix: store WhatsApp messages with the time the webhook arrived`.
 
 ---
 
