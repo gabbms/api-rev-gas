@@ -52,6 +52,28 @@ describe("parseWahaWebhook", () => {
     expect(r.messages[0]).toMatchObject({ kind: "unsupported", text });
   });
 
+  it("a voice note WAHA downloaded → audio, with the file URL and mime", () => {
+    const r = parseWahaWebhook(
+      msg({ hasMedia: true, body: "", media: { url: "http://localhost:3000/api/files/default/x.oga", mimetype: "audio/ogg; codecs=opus" } }),
+    );
+    expect(r.messages[0]).toMatchObject({
+      kind: "audio",
+      text: "[áudio]",
+      media: { url: "http://localhost:3000/api/files/default/x.oga", mime: "audio/ogg; codecs=opus" },
+    });
+  });
+
+  it("a voice note without media.url (download off or failed) stays unsupported", () => {
+    const r = parseWahaWebhook(msg({ hasMedia: true, media: { url: null, mimetype: "audio/ogg; codecs=opus" } }));
+    expect(r.messages[0]).toMatchObject({ kind: "unsupported", text: "[áudio]" });
+    expect(r.messages[0]).not.toHaveProperty("media");
+  });
+
+  it("an image WAHA downloaded is still unsupported", () => {
+    const r = parseWahaWebhook(msg({ hasMedia: true, media: { url: "http://localhost:3000/api/files/default/x.jpg", mimetype: "image/jpeg" } }));
+    expect(r.messages[0]).toMatchObject({ kind: "unsupported", text: "[imagem]" });
+  });
+
   it("media without a known type, and a message without text (location, contact), are unsupported", () => {
     expect(parseWahaWebhook(msg({ hasMedia: true, media: null })).messages[0]).toMatchObject({ kind: "unsupported", text: "[arquivo]" });
     expect(parseWahaWebhook(msg({ body: "  " })).messages[0]).toMatchObject({ kind: "unsupported", text: "[mensagem sem texto]" });

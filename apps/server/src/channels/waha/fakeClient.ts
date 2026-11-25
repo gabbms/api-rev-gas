@@ -27,3 +27,15 @@ export class FakeWhatsAppSender implements WhatsAppSender {
     return { id: `fake-${++this.n}` };
   }
 }
+
+/** In-memory media downloader for tests: answers `next` (a file or an error) and records the URLs. */
+export class FakeMediaDownloader {
+  urls: string[] = [];
+  next: { data: Uint8Array; mime: string } | Error = { data: new Uint8Array([1, 2, 3]), mime: "audio/ogg; codecs=opus" };
+
+  readonly download = async (url: string): Promise<{ data: Uint8Array; mime: string }> => {
+    this.urls.push(url);
+    if (this.next instanceof Error) throw this.next;
+    return this.next;
+  };
+}

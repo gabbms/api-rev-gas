@@ -129,15 +129,15 @@ a partir dele. Perguntar ao usuário.
   `MediaTooLargeError` sem ler o corpo; sem `content-length`, lê em partes e para ao passar do limite.
   Erros de status como os do `createWahaSender`.
 
-- [ ] **Step 1: Testes que falham** — parser: nota de voz com `media.url` e `audio/ogg; codecs=opus` →
+- [x] **Step 1: Testes que falham** — parser: nota de voz com `media.url` e `audio/ogg; codecs=opus` →
   `kind: "audio"`; sem `url` → `unsupported`. Downloader (**Review Focus 2**):
   `http://localhost:3000/api/files/default/x.oga` → busca `WAHA_URL/api/files/default/x.oga` com a chave;
   `http://evil.example/api/files/x` → busca só o caminho sobre `WAHA_URL`;
   `http://localhost:3000/api/sessions` → erro, nenhum fetch. **Review Focus 3:** `content-length` grande →
   `MediaTooLargeError`; corpo grande sem `content-length` → `MediaTooLargeError`. 401 → `auth` sem a chave
   na mensagem.
-- [ ] **Step 2:** FAIL. **Step 3:** implementar. **Step 4:** PASS.
-- [ ] **Step 5:** Commit `feat: parse WAHA voice notes and download media from WAHA only`.
+- [x] **Step 2:** FAIL. **Step 3:** implementar. **Step 4:** PASS.
+- [x] **Step 5:** Commit `feat: parse WAHA voice notes and download media from WAHA only`.
 
 ---
 

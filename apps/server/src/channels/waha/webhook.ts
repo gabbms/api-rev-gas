@@ -7,10 +7,12 @@ export type InboundMessage = {
   from: string;
   profileName: string | null;
   at: Date;
-  /** The bot understands text only; everything else gets a fixed reply. */
-  kind: "text" | "unsupported";
-  /** The text, or a placeholder such as "[áudio]" for unsupported messages. */
+  /** Text, a voice note WAHA downloaded (transcribed later), or anything else (fixed reply). */
+  kind: "text" | "unsupported" | "audio";
+  /** The text, or a placeholder such as "[áudio]" for audio and unsupported messages. */
   text: string;
+  /** Audio only: the file as WAHA announced it (only its path is used to download). */
+  media?: { url: string; mime: string };
 };
 
 /** A message from an `@lid` contact: only the phone is missing (see createWahaLidResolver). */
@@ -29,8 +31,15 @@ function mediaPlaceholder(p: Obj): string {
   return "[arquivo]";
 }
 
-function content(p: Obj): Pick<InboundMessage, "kind" | "text"> {
-  if (p.hasMedia === true) return { kind: "unsupported", text: mediaPlaceholder(p) };
+function content(p: Obj): Pick<InboundMessage, "kind" | "text" | "media"> {
+  if (p.hasMedia === true) {
+    const media = isObj(p.media) ? p.media : undefined;
+    const url = media ? str(media.url) : undefined;
+    const mime = (media ? str(media.mimetype) : undefined) ?? "";
+    // Only a voice note WAHA actually downloaded can be transcribed; without url it stays "[áudio]".
+    if (url && mime.startsWith("audio/")) return { kind: "audio", text: "[áudio]", media: { url, mime } };
+    return { kind: "unsupported", text: mediaPlaceholder(p) };
+  }
   const body = str(p.body) ?? "";
   return body.trim() === "" ? { kind: "unsupported", text: "[mensagem sem texto]" } : { kind: "text", text: body };
 }

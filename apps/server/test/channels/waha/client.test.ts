@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { WhatsAppError, createWahaLidResolver, createWahaSender, listTitleAndBody, verifyWahaSecret } from "../../../src/channels/waha/client.js";
+import {
+  MediaTooLargeError,
+  WhatsAppError,
+  createWahaLidResolver,
+  createWahaMediaDownloader,
+  createWahaSender,
+  listTitleAndBody,
+  verifyWahaSecret,
+} from "../../../src/channels/waha/client.js";
 
 const KEY = "waha-key-should-never-leak";
 type Call = { url: string; init: RequestInit };
@@ -116,6 +124,101 @@ describe("createWahaSender", () => {
   it("maps a thrown fetch (network or timeout) to network", async () => {
     const { sender } = setup([exists("1@c.us"), new TypeError("fetch failed")]);
     expect((await errorOf(sender.sendText("5586999998888", "oi"))).kind).toBe("network");
+  });
+});
+
+describe("createWahaMediaDownloader", () => {
+  const MAX = 1000;
+  /** A body that counts how many chunks were read (highWaterMark 0: nothing is pulled until read). */
+  function countingBody(chunks: number, size: number) {
+    const state = { pulled: 0 };
+    const stream = new ReadableStream<Uint8Array>(
+      {
+        pull(c) {
+          if (state.pulled >= chunks) return c.close();
+          state.pulled++;
+          c.enqueue(new Uint8Array(size));
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    return { stream, state };
+  }
+
+  function mk(response: () => Response) {
+    const calls: { url: string; init: RequestInit }[] = [];
+    const download = createWahaMediaDownloader({
+      baseUrl: "http://localhost:3002/",
+      apiKey: KEY,
+      maxBytes: MAX,
+      fetch: (async (url: string | URL | Request, init?: RequestInit) => {
+        calls.push({ url: String(url), init: init ?? {} });
+        return response();
+      }) as typeof fetch,
+    });
+    return { download, calls };
+  }
+  const audio = (bytes = 10, headers: Record<string, string> = { "content-type": "audio/ogg; codecs=opus" }) =>
+    new Response(new Uint8Array(bytes), { headers });
+
+  it("Review Focus 2: fetches only the path, on WAHA_URL, with the key", async () => {
+    const { download, calls } = mk(() => audio(10));
+    const r = await download("http://localhost:3000/api/files/default/x.oga");
+    expect(calls[0]!.url).toBe("http://localhost:3002/api/files/default/x.oga");
+    expect(header(calls[0]!, "X-Api-Key")).toBe(KEY);
+    expect(r.data.byteLength).toBe(10);
+    expect(r.mime).toBe("audio/ogg; codecs=opus");
+  });
+
+  it("Review Focus 2: another host still goes to WAHA_URL, keeping the query", async () => {
+    const { download, calls } = mk(() => audio());
+    await download("http://evil.example/api/files/x.oga?session=default");
+    expect(calls.map((c) => c.url)).toEqual(["http://localhost:3002/api/files/x.oga?session=default"]);
+  });
+
+  it.each(["http://localhost:3000/api/sessions", "http://localhost:3000/api/files/../sessions/default", "/api/files/x", "lixo"])(
+    "Review Focus 2: %s → invalid, nothing fetched",
+    async (url) => {
+      const { download, calls } = mk(() => audio());
+      await expect(download(url)).rejects.toMatchObject({ kind: "invalid" });
+      expect(calls).toEqual([]);
+    },
+  );
+
+  it("Review Focus 3: a content-length over the limit is refused without reading the body", async () => {
+    const { stream, state } = countingBody(5, 500);
+    const { download } = mk(() => new Response(stream, { headers: { "content-length": String(MAX + 1), "content-type": "audio/ogg" } }));
+    await expect(download("http://localhost:3000/api/files/x.oga")).rejects.toBeInstanceOf(MediaTooLargeError);
+    expect(state.pulled).toBe(0);
+  });
+
+  it("Review Focus 3: without content-length, stops reading once past the limit", async () => {
+    const { stream, state } = countingBody(100, 400);
+    const { download } = mk(() => new Response(stream, { headers: { "content-type": "audio/ogg" } }));
+    await expect(download("http://localhost:3000/api/files/x.oga")).rejects.toBeInstanceOf(MediaTooLargeError);
+    expect(state.pulled).toBeLessThan(5);
+  });
+
+  it("a file within the limit is read whole", async () => {
+    const { stream } = countingBody(2, 400);
+    const { download } = mk(() => new Response(stream, { headers: { "content-type": "audio/ogg" } }));
+    expect((await download("http://localhost:3000/api/files/x.oga")).data.byteLength).toBe(800);
+  });
+
+  it("401 → auth, without the key in the error; a thrown fetch → network", async () => {
+    const { download } = mk(() => new Response(`bad ${KEY}`, { status: 401 }));
+    const err = await errorOf(download("http://localhost:3000/api/files/x.oga"));
+    expect(err.kind).toBe("auth");
+    expect(err.message).not.toContain(KEY);
+    const broken = createWahaMediaDownloader({
+      baseUrl: "http://localhost:3002",
+      apiKey: KEY,
+      maxBytes: MAX,
+      fetch: (async () => {
+        throw new TypeError("fetch failed");
+      }) as typeof fetch,
+    });
+    expect((await errorOf(broken("http://localhost:3000/api/files/x.oga"))).kind).toBe("network");
   });
 });
 

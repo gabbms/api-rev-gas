@@ -127,6 +127,90 @@ export function createWahaSender(o: WahaOptions): WhatsAppSender {
   };
 }
 
+/** The media file is larger than the configured limit (it was not read in full). */
+export class MediaTooLargeError extends Error {
+  constructor() {
+    super("arquivo de mídia maior que o limite");
+    this.name = "MediaTooLargeError";
+  }
+}
+
+const MEDIA_PATH = "/api/files/";
+
+/**
+ * Downloads a file WAHA announced in a webhook. Only the URL's path (and query) is used, on
+ * WAHA_URL: the host in the webhook is the container's own and must never be trusted. Paths outside
+ * /api/files/ are refused without any request. Files above `maxBytes` are refused without reading
+ * them whole. No automatic retry.
+ */
+export function createWahaMediaDownloader(o: {
+  baseUrl: string;
+  apiKey: string;
+  maxBytes: number;
+  fetch?: typeof fetch;
+  timeoutMs?: number;
+}): (url: string) => Promise<{ data: Uint8Array; mime: string }> {
+  const doFetch = o.fetch ?? fetch;
+  const base = o.baseUrl.replace(/\/+$/, "");
+  return async (url) => {
+    let path: string;
+    try {
+      const u = new URL(url);
+      path = `${u.pathname}${u.search}`;
+    } catch {
+      throw new WhatsAppError("invalid", "endereço de mídia inválido");
+    }
+    if (!path.startsWith(MEDIA_PATH)) throw new WhatsAppError("invalid", "endereço de mídia fora do WAHA");
+
+    let res: Response;
+    try {
+      res = await doFetch(`${base}${path}`, {
+        headers: { "X-Api-Key": o.apiKey },
+        signal: AbortSignal.timeout(o.timeoutMs ?? 15_000),
+      });
+    } catch {
+      throw new WhatsAppError("network", "WAHA não respondeu");
+    }
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => undefined);
+      throw errorFor(res.status);
+    }
+    const mime = res.headers.get("content-type") ?? "";
+    const declared = Number(res.headers.get("content-length"));
+    if (Number.isFinite(declared) && declared > o.maxBytes) {
+      await res.body?.cancel().catch(() => undefined);
+      throw new MediaTooLargeError();
+    }
+    if (!res.body) return { data: new Uint8Array(), mime };
+
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > o.maxBytes) {
+          await reader.cancel().catch(() => undefined);
+          throw new MediaTooLargeError();
+        }
+        chunks.push(value);
+      }
+    } catch (e) {
+      if (e instanceof MediaTooLargeError) throw e;
+      throw new WhatsAppError("network", "falha ao baixar a mídia do WAHA");
+    }
+    const data = new Uint8Array(total);
+    let at = 0;
+    for (const c of chunks) {
+      data.set(c, at);
+      at += c.byteLength;
+    }
+    return { data, mime };
+  };
+}
+
 /**
  * New WhatsApp contacts may arrive as `<id>@lid` (no phone). WAHA knows each one's phone
  * (`/api/<session>/lids/<lid>`). Returns only the digits, or undefined when unknown.
