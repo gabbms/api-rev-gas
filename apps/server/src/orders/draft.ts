@@ -216,6 +216,9 @@ function fillPayments(
   return payments;
 }
 
+/** Last line of the official summary. The WhatsApp list swaps it for a "tap an option" line. */
+export const SUMMARY_QUESTION = "Posso registrar o pedido? Responda *sim* para confirmar ou me diga o que mudar.";
+
 /** A Vale Gás coupon is already paid: tell the customer what is left to pay on delivery. */
 function valeGasNote(d: DraftData): string[] {
   const covered = d.payments.filter((p) => p.type === "VALEGAS").reduce((s, p) => s + (p.amountCents ?? 0), 0);
@@ -240,7 +243,7 @@ function summarize(d: DraftData): string {
     ...valeGasNote(d),
     `Entrega: ${street} – ${a.neighborhood}, ${a.city}/${a.state}`,
     ...(d.observation ? [`Obs.: ${d.observation}`] : []),
-    "Posso registrar o pedido? Responda *sim* para confirmar ou me diga o que mudar.",
+    SUMMARY_QUESTION,
   ].join("\n");
 }
 

@@ -3,17 +3,49 @@ import { appendContextTurn, runAgentTurn, type AgentDeps, type ToolContext } fro
 import { conversations, handoffs, messages } from "../db/schema.js";
 import { normalizePhone } from "../revgas/phone.js";
 
-export type Outgoing = { conversationId: string; phone: string; author: "bot" | "attendant" | "system"; text: string };
+export type Outgoing = {
+  conversationId: string;
+  phone: string;
+  author: "bot" | "attendant" | "system";
+  text: string;
+  /** The stored message, so the channel can record whether it was delivered. */
+  messageId: string;
+  /** The official order summary (WhatsApp sends it with the Confirmar / Mudar algo list). */
+  kind?: "summary";
+};
+
+export type Channel = "simulated" | "whatsapp";
+
+export type Inbound = {
+  channel: Channel;
+  /** WhatsApp: the sender's digits with 55 (where replies go). Null for the simulated chat. */
+  address: string | null;
+  rawPhone: string;
+  text: string;
+  /** Not text (audio, image, sticker…): fixed reply, the AI is not called. */
+  kind?: "text" | "unsupported";
+};
 
 export type RunTurn = typeof runAgentTurn;
 
 export const HANDOFF_TEXT = "Vou chamar um atendente para te ajudar. Só um instante!";
 export const EMPTY_TURN_TEXT = "Desculpe, não entendi. Pode repetir?";
+export const UNSUPPORTED_TEXT = "Por enquanto eu entendo só mensagens de texto. Pode escrever o seu pedido?";
+export const WHATSAPP_ONLY_TEXT = "Esta conversa é do WhatsApp; responda pelo painel";
+
+/** A simulated-chat message aimed at a real WhatsApp customer's conversation. */
+export class ChannelMismatchError extends Error {
+  constructor() {
+    super(WHATSAPP_ONLY_TEXT);
+    this.name = "ChannelMismatchError";
+  }
+}
 
 export type ConversationSummary = {
   id: string;
   phone: string;
   mode: "bot" | "human";
+  channel: Channel;
   handoffReason: string | null;
   lastMessageAt: Date;
 };
@@ -34,19 +66,33 @@ export class ConversationService {
     private readonly runTurn: RunTurn = runAgentTurn,
   ) {}
 
+  /** The simulated chat. */
   async handleCustomerMessage(rawPhone: string, text: string): Promise<void> {
-    const phone = normalizePhone(rawPhone);
+    await this.handleInbound({ channel: "simulated", address: null, rawPhone, text });
+  }
+
+  async handleInbound(m: Inbound): Promise<void> {
+    const phone = normalizePhone(m.rawPhone);
     if (!phone) {
       console.warn("[conversas] telefone inválido; mensagem ignorada");
       return;
     }
-    const conv = await this.findOrCreate(phone);
+    const conv = await this.findOrCreate(phone, m);
+    // Typing in the simulated chat must never reach a real WhatsApp customer.
+    if (m.channel === "simulated" && conv.channel === "whatsapp") throw new ChannelMismatchError();
     // Timestamps use the app clock, same as presentedAt (the DB/Docker clock may drift).
     // Stored on arrival, so its timestamp reflects when the customer actually wrote it
     // (relative to when a summary was presented).
-    await this.deps.db.insert(messages).values({ conversationId: conv.id, author: "customer", text, createdAt: new Date() });
+    await this.deps.db.insert(messages).values({ conversationId: conv.id, author: "customer", text: m.text, createdAt: new Date() });
     this.onChange?.(conv.id);
-    await this.enqueue(conv.id, () => this.process(conv.id, phone, text));
+    if (m.kind === "unsupported") {
+      await this.enqueue(conv.id, async () => {
+        if ((await this.get(conv.id)).mode === "human") return;
+        await this.deliver({ conversationId: conv.id, phone, author: "bot", text: UNSUPPORTED_TEXT });
+      });
+      return;
+    }
+    await this.enqueue(conv.id, () => this.process(conv.id, phone, m.text));
   }
 
   async attendantReply(conversationId: string, text: string): Promise<void> {
@@ -90,6 +136,7 @@ export class ConversationService {
         id: conversations.id,
         phone: conversations.phone,
         mode: conversations.mode,
+        channel: conversations.channel,
         handoffReason: conversations.handoffReason,
         lastMessageAt: sql<Date>`coalesce(${last}, ${conversations.createdAt})`.mapWith((v) => new Date(v)),
       })
@@ -100,9 +147,11 @@ export class ConversationService {
     return rows;
   }
 
-  async history(conversationId: string): Promise<{ author: string; text: string; createdAt: Date }[]> {
+  async history(
+    conversationId: string,
+  ): Promise<{ author: string; text: string; createdAt: Date; deliveryStatus: "sent" | "failed" | null }[]> {
     return this.deps.db
-      .select({ author: messages.author, text: messages.text, createdAt: messages.createdAt })
+      .select({ author: messages.author, text: messages.text, createdAt: messages.createdAt, deliveryStatus: messages.deliveryStatus })
       .from(messages)
       .where(eq(messages.conversationId, conversationId))
       .orderBy(asc(messages.createdAt), asc(messages.id));
@@ -139,7 +188,7 @@ export class ConversationService {
 
     if (result.replyText) await this.deliver({ conversationId, phone, author: "bot", text: result.replyText });
     if (draft) {
-      await this.deliver({ conversationId, phone, author: "bot", text: draft.summaryText });
+      await this.deliver({ conversationId, phone, author: "bot", text: draft.summaryText, kind: "summary" });
       // Only after the summary went out does it count as presented.
       await this.deps.orders.markPresented(draft.draftId, new Date());
     }
@@ -158,9 +207,12 @@ export class ConversationService {
     this.onChange?.(conversationId);
   }
 
-  private async deliver(msg: Outgoing): Promise<void> {
-    await this.deps.db.insert(messages).values({ conversationId: msg.conversationId, author: msg.author, text: msg.text, createdAt: new Date() });
-    await this.send(msg);
+  private async deliver(msg: Omit<Outgoing, "messageId">): Promise<void> {
+    const [row] = await this.deps.db
+      .insert(messages)
+      .values({ conversationId: msg.conversationId, author: msg.author, text: msg.text, createdAt: new Date() })
+      .returning({ id: messages.id });
+    await this.send({ ...msg, messageId: row!.id });
     this.onChange?.(msg.conversationId);
   }
 
@@ -176,9 +228,22 @@ export class ConversationService {
     return next;
   }
 
-  private async findOrCreate(phone: string) {
-    await this.deps.db.insert(conversations).values({ phone }).onConflictDoNothing({ target: conversations.phone });
+  private async findOrCreate(phone: string, m: Inbound) {
+    const address = m.channel === "whatsapp" && m.address ? m.address.replace(/\D/g, "") : null;
+    await this.deps.db
+      .insert(conversations)
+      .values(address ? { phone, channel: "whatsapp", channelAddress: address } : { phone })
+      .onConflictDoNothing({ target: conversations.phone });
     const [row] = await this.deps.db.select().from(conversations).where(eq(conversations.phone, phone));
+    // A WhatsApp message makes (or keeps) the conversation a WhatsApp one, replying to the latest address.
+    if (address && (row!.channel !== "whatsapp" || row!.channelAddress !== address)) {
+      const [updated] = await this.deps.db
+        .update(conversations)
+        .set({ channel: "whatsapp", channelAddress: address, updatedAt: new Date() })
+        .where(eq(conversations.id, row!.id))
+        .returning();
+      return updated!;
+    }
     return row!;
   }
 

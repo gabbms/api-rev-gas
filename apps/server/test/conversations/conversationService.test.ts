@@ -4,9 +4,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import type { AgentDeps, ToolContext } from "../../src/agent/agent.js";
 import { Catalog } from "../../src/catalog/catalog.js";
 import { loadConfig } from "../../src/config.js";
+import { createOutgoingRouter } from "../../src/channels/router.js";
+import { WhatsAppError } from "../../src/channels/waha/client.js";
+import { FakeWhatsAppSender } from "../../src/channels/waha/fakeClient.js";
 import {
   ConversationService,
   HANDOFF_TEXT,
+  UNSUPPORTED_TEXT,
   type Outgoing,
   type RunTurn,
 } from "../../src/conversations/conversationService.js";
@@ -73,7 +77,9 @@ describe("ConversationService", () => {
     await service(replying("Olá! Em que posso ajudar?")).handleCustomerMessage("86999998888", "oi");
     const conv = await conversationByPhone("86999998888");
     expect(conv?.mode).toBe("bot");
-    expect(sent).toEqual([{ conversationId: conv!.id, phone: "86999998888", author: "bot", text: "Olá! Em que posso ajudar?" }]);
+    expect(sent).toEqual([
+      { conversationId: conv!.id, phone: "86999998888", author: "bot", text: "Olá! Em que posso ajudar?", messageId: expect.any(String) },
+    ]);
     const svc = service(replying(null));
     expect((await svc.history(conv!.id)).map((m) => [m.author, m.text])).toEqual([
       ["customer", "oi"],
@@ -235,6 +241,108 @@ describe("ConversationService — human period", () => {
     // Only what happened after the handoff.
     expect(blocks[0]!.text).not.toContain("Cliente: oi");
     expect(blocks[0]!.text).not.toContain("quero falar com uma pessoa");
+  });
+});
+
+describe("ConversationService — WhatsApp channel", () => {
+  let wa: FakeWhatsAppSender;
+  const hub = { message: async () => undefined, changed: () => undefined };
+  const waService = (runTurn: RunTurn) => new ConversationService(deps, createOutgoingRouter({ db, hub, whatsapp: wa }), undefined, runTurn);
+  const fromWhatsApp = (text: string, kind: "text" | "unsupported" = "text", address = "5586999998888") =>
+    ({ channel: "whatsapp", address, rawPhone: address, text, kind }) as const;
+
+  beforeEach(() => {
+    wa = new FakeWhatsAppSender();
+  });
+
+  it("stores the channel and address, and sends the bot's reply to that address", async () => {
+    await waService(replying("Olá!")).handleInbound(fromWhatsApp("oi"));
+    expect(await conversationByPhone("86999998888")).toMatchObject({ channel: "whatsapp", channelAddress: "5586999998888" });
+    expect(wa.sent).toEqual([{ to: "5586999998888", text: "Olá!" }]);
+  });
+
+  it("updates the address when WhatsApp reports another one", async () => {
+    const svc = waService(replying("ok"));
+    await svc.handleInbound(fromWhatsApp("oi"));
+    await svc.handleInbound(fromWhatsApp("oi de novo", "text", "+55 86 99999-8888 "));
+    expect((await conversationByPhone("86999998888"))?.channelAddress).toBe("5586999998888");
+    await db.update(conversations).set({ channelAddress: "old" });
+    await svc.handleInbound(fromWhatsApp("e agora"));
+    expect((await conversationByPhone("86999998888"))?.channelAddress).toBe("5586999998888");
+    expect(await db.select().from(conversations)).toHaveLength(1);
+  });
+
+  it("the simulated chat sends nothing to WhatsApp", async () => {
+    await waService(replying("Olá!")).handleCustomerMessage("86999998888", "oi");
+    expect(await conversationByPhone("86999998888")).toMatchObject({ channel: "simulated", channelAddress: null });
+    expect(wa.sent).toEqual([]);
+  });
+
+  it("refuses a simulated message to a WhatsApp conversation, so nobody writes as a real customer", async () => {
+    const runTurn = vi.fn(replying("não devia"));
+    const svc = waService(runTurn);
+    await svc.handleInbound(fromWhatsApp("oi"));
+    runTurn.mockClear();
+    wa.sent = [];
+    await expect(svc.handleCustomerMessage("86999998888", "sim")).rejects.toThrow("Esta conversa é do WhatsApp; responda pelo painel");
+    expect(runTurn).not.toHaveBeenCalled();
+    expect(wa.sent).toEqual([]);
+  });
+
+  it("an attendant's reply in a WhatsApp conversation goes out through WhatsApp", async () => {
+    const svc = waService(replying(null, { handoff: { reason: "Cliente pediu humano" } }));
+    await svc.handleInbound(fromWhatsApp("quero falar com uma pessoa"));
+    const conv = await conversationByPhone("86999998888");
+    await svc.attendantReply(conv!.id, "Oi, aqui é a Ana.");
+    expect(wa.sent.map((s) => s.text)).toEqual([HANDOFF_TEXT, "Oi, aqui é a Ana."]);
+  });
+
+  it("sends the official summary as the Confirmar / Mudar algo list", async () => {
+    vi.spyOn(deps.orders, "markPresented").mockResolvedValue();
+    await waService(replying("Vou te mandar o resumo.", { draftPresentable: { draftId: "d", summaryText: "Resumo do pedido:\nTotal: R$ 1,00" } })).handleInbound(
+      fromWhatsApp("pix"),
+    );
+    expect(wa.sent).toEqual([
+      { to: "5586999998888", text: "Vou te mandar o resumo." },
+      { to: "5586999998888", text: "Resumo do pedido:\nTotal: R$ 1,00", options: ["Confirmar", "Mudar algo"] },
+    ]);
+  });
+
+  it("a delivery failing twice marks the message failed without breaking the turn", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    wa.failures = [new WhatsAppError("network", "x"), new WhatsAppError("network", "x")];
+    await waService(replying("Olá!")).handleInbound(fromWhatsApp("oi"));
+    const rows = await db.select().from(messages).orderBy(asc(messages.createdAt));
+    expect(rows.map((r) => [r.author, r.deliveryStatus])).toEqual([
+      ["customer", null],
+      ["bot", "failed"],
+    ]);
+    const conv = await conversationByPhone("86999998888");
+    expect((await waService(replying(null)).history(conv!.id)).at(-1)).toMatchObject({ deliveryStatus: "failed" });
+    error.mockRestore();
+  });
+
+  it("an audio gets the fixed reply and does not call the AI", async () => {
+    const runTurn = vi.fn(replying("não devia"));
+    await waService(runTurn).handleInbound(fromWhatsApp("[áudio]", "unsupported"));
+    expect(runTurn).not.toHaveBeenCalled();
+    expect(UNSUPPORTED_TEXT).toBe("Por enquanto eu entendo só mensagens de texto. Pode escrever o seu pedido?");
+    expect(wa.sent).toEqual([{ to: "5586999998888", text: UNSUPPORTED_TEXT }]);
+    const conv = await conversationByPhone("86999998888");
+    expect((await waService(runTurn).history(conv!.id)).map((m) => m.text)).toEqual(["[áudio]", UNSUPPORTED_TEXT]);
+  });
+
+  it("an audio while a human attends gets no automatic reply", async () => {
+    await db.insert(conversations).values({ phone: "86999998888", mode: "human", channel: "whatsapp", channelAddress: "5586999998888" });
+    await waService(replying("x")).handleInbound(fromWhatsApp("[áudio]", "unsupported"));
+    expect(wa.sent).toEqual([]);
+  });
+
+  it("lists the channel of each conversation", async () => {
+    await waService(replying("ok")).handleInbound(fromWhatsApp("oi"));
+    await waService(replying("ok")).handleCustomerMessage("86911112222", "oi");
+    const list = await waService(replying(null)).list();
+    expect(Object.fromEntries(list.map((c) => [c.phone, c.channel]))).toEqual({ "86999998888": "whatsapp", "86911112222": "simulated" });
   });
 });
 

@@ -15,12 +15,19 @@ export const conversationSummarySchema = z.object({
   id: z.string(),
   phone: z.string(),
   mode: z.enum(["bot", "human"]),
+  channel: z.enum(["simulated", "whatsapp"]),
   handoffReason: z.string().nullable(),
   lastMessageAt: z.string(),
 });
 export type ConversationSummary = z.infer<typeof conversationSummarySchema>;
 
-export const historyItemSchema = z.object({ author: authorSchema, text: z.string(), createdAt: z.string() });
+export const historyItemSchema = z.object({
+  author: authorSchema,
+  text: z.string(),
+  createdAt: z.string(),
+  /** WhatsApp replies: "failed" means WAHA did not take it ("não entregue"). */
+  deliveryStatus: z.enum(["sent", "failed"]).nullable().optional(),
+});
 export type HistoryItem = z.infer<typeof historyItemSchema>;
 
 // Server → client

@@ -3,7 +3,7 @@ import { clientMessageSchema, type ConversationSummary, type ServerMessage } fro
 import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
-import type { ConversationService, Outgoing } from "../conversations/conversationService.js";
+import { ChannelMismatchError, type ConversationService, type Outgoing } from "../conversations/conversationService.js";
 import type { Db } from "../db/client.js";
 import { computeMetrics, parseRange } from "../metrics/metrics.js";
 import { buildTrace } from "../conversations/trace.js";
@@ -139,6 +139,10 @@ export async function buildServer(deps: {
         else if (msg.type === "attendant_reply") await conversations.attendantReply(msg.conversationId, msg.text);
         else await conversations.returnToBot(msg.conversationId);
       } catch (e) {
+        if (e instanceof ChannelMismatchError) {
+          send(socket, { type: "error", message: e.message });
+          return;
+        }
         console.error("[ws] erro ao processar mensagem:", e instanceof Error ? e.message : e);
         send(socket, { type: "error", message: "Não foi possível processar a mensagem" });
       }

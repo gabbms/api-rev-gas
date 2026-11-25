@@ -107,9 +107,9 @@ adapte; não importe arquivos de lá. Se a leitura fora da pasta for bloqueada, 
 - `main.ts`: com `waha`, cria o sender e o resolvedor, sobe `buildWahaWebhookServer` com `onInbound` → `handleInbound({ channel: "whatsapp", address: m.from, rawPhone: m.from, text: m.text, kind: m.kind })` e loga o aviso de canal não oficial.
 - `ConversationSummary` ganha `channel`.
 
-- [ ] **Step 1: Testes que falham** — conversa WhatsApp → resposta do bot vai ao `FakeWhatsAppSender` com o endereço gravado; conversa simulada → nada vai ao WhatsApp; resposta do atendente numa conversa WhatsApp → sai pelo WhatsApp; resumo → `sendChoices` com as 2 opções; `sendChoices` falhando → `sendText`; falha de rede dupla → `failed` sem quebrar o turno; áudio → resposta fixa e IA não chamada.
-- [ ] **Step 2:** FAIL. **Step 3:** implementar. **Step 4:** PASS.
-- [ ] **Step 5:** Commit `feat: route replies to WhatsApp via WAHA and keep the panel in sync`.
+- [x] **Step 1: Testes que falham** — conversa WhatsApp → resposta do bot vai ao `FakeWhatsAppSender` com o endereço gravado; conversa simulada → nada vai ao WhatsApp; resposta do atendente numa conversa WhatsApp → sai pelo WhatsApp; resumo → `sendChoices` com as 2 opções; `sendChoices` falhando → `sendText`; falha de rede dupla → `failed` sem quebrar o turno; áudio → resposta fixa e IA não chamada.
+- [x] **Step 2:** FAIL. **Step 3:** implementar. **Step 4:** PASS.
+- [x] **Step 5:** Commit `feat: route replies to WhatsApp via WAHA and keep the panel in sync`.
 
 ---
 
