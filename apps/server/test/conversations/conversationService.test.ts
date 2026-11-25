@@ -346,6 +346,64 @@ describe("ConversationService — WhatsApp channel", () => {
   });
 });
 
+describe("ConversationService — WhatsApp options and the confirmation gate", () => {
+  let wa: FakeWhatsAppSender;
+  let fake: FakeRevgasClient;
+  const hub = { message: async () => undefined, changed: () => undefined };
+  const order = (quantity: number) => ({
+    items: [{ productId: 23740, quantity }],
+    address: { location: "Rua A", number: "1", neighborhood: "Centro", city: "Teresina", state: "PI" },
+    payments: [{ type: "PIX" as const }],
+    emptyCylinders: quantity,
+  });
+  let confirmResults: unknown[];
+
+  // Stands in for the AI: builds the order, re-builds it on a change, and calls confirm on "Confirmar".
+  const ai: RunTurn = async (ctx, text) => {
+    if (text === "Confirmar") {
+      confirmResults.push(await deps.orders.confirm(ctx.conversationId));
+      return { replyText: "ok", events: ctx.events };
+    }
+    const r = await deps.orders.upsertDraft(ctx.conversationId, order(text.includes("2") ? 2 : 1), null);
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    // A change the AI did not summarize yet (asks something first): the draft stays unpresented.
+    if (text.includes("2")) return { replyText: "Certo, 2 botijões. Mais alguma coisa?", events: ctx.events };
+    ctx.events.draftPresentable = { draftId: r.draftId!, summaryText: r.summaryText };
+    return { replyText: null, events: ctx.events };
+  };
+  const say = (svc: ConversationService, text: string) =>
+    svc.handleInbound({ channel: "whatsapp", address: "5586999998888", rawPhone: "5586999998888", text, kind: "text" });
+
+  beforeEach(() => {
+    wa = new FakeWhatsAppSender();
+    confirmResults = [];
+    fake = new FakeRevgasClient();
+    fake.products.push({ id: 23740, description: "GLP 13KG", inactive: false, establishment_id: 2580 });
+    fake.deals.push({ id: 1, product_id: 23740, payment_type: "PIX", suggested_value: 110, minimum_value: null, type: "PAYMENT_TYPE", is_default: false });
+    const catalog = new Catalog(fake, 2580);
+    deps = { ...deps, catalog, revgas: fake, orders: new OrderService(db, catalog, fake, cfg) };
+  });
+
+  it("'Confirmar' tapped on the presented summary creates the sale", async () => {
+    const svc = new ConversationService(deps, createOutgoingRouter({ db, hub, whatsapp: wa }), undefined, ai);
+    await say(svc, "quero 1 botijão, pix");
+    expect(wa.sent.at(-1)?.options).toEqual(["Confirmar", "Mudar algo"]);
+    await say(svc, "Confirmar");
+    expect(confirmResults).toEqual([{ kind: "created", saleId: expect.any(Number) }]);
+    // The fake stands for RevGás here (in the app, REVGAS_WRITE_ENABLED=false turns it into a simulated sale).
+    expect(fake.sales).toHaveLength(1);
+  });
+
+  it("Review Focus 5: 'Confirmar' from an old summary after the order changed creates no sale", async () => {
+    const svc = new ConversationService(deps, createOutgoingRouter({ db, hub, whatsapp: wa }), undefined, ai);
+    await say(svc, "quero 1 botijão, pix");
+    await say(svc, "na verdade são 2");
+    await say(svc, "Confirmar");
+    expect(confirmResults).toEqual([{ kind: "not_ready", reason: "not_presented" }]);
+    expect(fake.sales).toHaveLength(0);
+  });
+});
+
 describe("ConversationService — empty AI turn", () => {
   const empty = replying(null);
 

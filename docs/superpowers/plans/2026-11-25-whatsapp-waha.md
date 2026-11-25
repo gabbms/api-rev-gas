@@ -120,9 +120,9 @@ adapte; não importe arquivos de lá. Se a leitura fora da pasta for bloqueada, 
 
 - Prompt: "Confirmar" é a aprovação do último resumo; "Mudar algo" pede o que mudar. Nada mais muda na confirmação.
 
-- [ ] **Step 1: Testes que falham** — "Confirmar" após resumo apresentado → venda simulada criada; **Review Focus 5:** resumo → mudança de pedido → "Confirmar" antigo → `not_presented`, nenhuma venda.
-- [ ] **Step 2:** FAIL. **Step 3:** implementar. **Step 4:** PASS.
-- [ ] **Step 5:** Commit `feat: treat WhatsApp option replies as confirmation or change`.
+- [x] **Step 1: Testes que falham** — "Confirmar" após resumo apresentado → venda simulada criada; **Review Focus 5:** resumo → mudança de pedido → "Confirmar" antigo → `not_presented`, nenhuma venda.
+- [x] **Step 2:** FAIL. **Step 3:** implementar. **Step 4:** PASS.
+- [x] **Step 5:** Commit `feat: treat WhatsApp option replies as confirmation or change`.
 
 ---
 

@@ -551,6 +551,11 @@ describe("tools", () => {
     expect(SYSTEM_PROMPT).toContain('"P13" é o GLP 13 kg e "P45" é o GLP 45 kg');
   });
 
+  it("treats the WhatsApp options as approval of the last summary or a request to change it", () => {
+    expect(SYSTEM_PROMPT).toContain('"Confirmar" (opção da lista do WhatsApp) é a aprovação do último resumo enviado');
+    expect(SYSTEM_PROMPT).toContain('"Mudar algo" quer dizer que o cliente quer mudar o pedido: pergunte o que mudar');
+  });
+
   it("calls an attendant to change or cancel a registered order only when the customer says so clearly", () => {
     expect(SYSTEM_PROMPT).toContain("pedir claramente para alterar ou cancelar um pedido já registrado");
     expect(SYSTEM_PROMPT).not.toContain("o cliente quiser cancelar ou alterar um pedido já registrado");
