@@ -101,12 +101,12 @@ a partir dele. Perguntar ao usuário.
   outros 4xx → `invalid`; 5xx → `server`; exceção ou timeout → `network`.
 - `.env.example`: o bloco da seção 5.7 da spec, com comentário em português.
 
-- [ ] **Step 1: Testes que falham** (fetch falso) — config: `groq` sem chave → erro com o nome da variável;
+- [x] **Step 1: Testes que falham** (fetch falso) — config: `groq` sem chave → erro com o nome da variável;
   `groq` com `WHATSAPP_PROVIDER=off` → erro; `off` não exige nada. Transcritor: URL, header, `model`,
   `language` e nome do arquivo corretos; texto aparado; cada status vira o tipo certo
   (**Review Focus 4**); a chave e o corpo da resposta nunca aparecem em `message`.
-- [ ] **Step 2:** FAIL. **Step 3:** implementar (adaptar do Rev-Gás). **Step 4:** PASS.
-- [ ] **Step 5:** Commit `feat: add Groq-compatible audio transcriber and config`.
+- [x] **Step 2:** FAIL. **Step 3:** implementar (adaptar do Rev-Gás). **Step 4:** PASS.
+- [x] **Step 5:** Commit `feat: add Groq-compatible audio transcriber and config`.
 
 ---
 

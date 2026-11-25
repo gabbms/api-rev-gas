@@ -40,6 +40,11 @@ const envSchema = z.object({
   WAHA_SESSION: z.string().trim().min(1).default("default"),
   WHATSAPP_WEBHOOK_PORT: z.coerce.number({ error: "WHATSAPP_WEBHOOK_PORT deve ser um número" }).int().positive().default(3334),
   WHATSAPP_ALLOWED_NUMBERS: z.string().optional(),
+  AUDIO_TRANSCRIPTION: z.enum(["off", "groq"], { error: "AUDIO_TRANSCRIPTION deve ser off ou groq" }).default("off"),
+  GROQ_API_KEY: z.string().optional(),
+  TRANSCRIBE_URL: z.string().url({ error: "TRANSCRIBE_URL inválida" }).default("https://api.groq.com/openai/v1/audio/transcriptions"),
+  TRANSCRIBE_MODEL: z.string().trim().min(1).default("whisper-large-v3-turbo"),
+  AUDIO_MAX_BYTES: z.coerce.number({ error: "AUDIO_MAX_BYTES deve ser um número" }).int().positive().default(2_000_000),
   MAX_ITEM_QUANTITY: z.coerce.number({ error: "MAX_ITEM_QUANTITY deve ser um número" }).int().positive().default(10),
 });
 
@@ -78,6 +83,14 @@ export type AppConfig = {
   whatsappWebhookPort: number;
   /** DDD + number of who may use the bot over WhatsApp; null = anyone. */
   whatsappAllowedNumbers: string[] | null;
+  /** WhatsApp voice notes: "groq" transcribes them (the audio goes to Groq); "off" answers "text only". */
+  audioTranscription: "off" | "groq";
+  /** Required with groq. Never logged. */
+  groqApiKey: string | null;
+  transcribeUrl: string;
+  transcribeModel: string;
+  /** Voice notes above this size are refused without being transcribed. */
+  audioMaxBytes: number;
 };
 
 /** Reads and validates configuration. Error messages name variables, never their values. */
@@ -97,6 +110,10 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
   if (e.WHATSAPP_PROVIDER === "waha") {
     if (!e.WAHA_API_KEY) problems.push("WAHA_API_KEY é obrigatória com WHATSAPP_PROVIDER=waha");
     if (!e.WAHA_WEBHOOK_SECRET) problems.push("WAHA_WEBHOOK_SECRET é obrigatória com WHATSAPP_PROVIDER=waha");
+  }
+  if (e.AUDIO_TRANSCRIPTION === "groq") {
+    if (!e.GROQ_API_KEY) problems.push("GROQ_API_KEY é obrigatória com AUDIO_TRANSCRIPTION=groq");
+    if (e.WHATSAPP_PROVIDER !== "waha") problems.push("AUDIO_TRANSCRIPTION=groq exige WHATSAPP_PROVIDER=waha");
   }
   let allowed: string[] | null = null;
   if (e.WHATSAPP_ALLOWED_NUMBERS) {
@@ -131,5 +148,10 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     wahaSession: e.WAHA_SESSION,
     whatsappWebhookPort: e.WHATSAPP_WEBHOOK_PORT,
     whatsappAllowedNumbers: allowed,
+    audioTranscription: e.AUDIO_TRANSCRIPTION,
+    groqApiKey: e.GROQ_API_KEY ?? null,
+    transcribeUrl: e.TRANSCRIBE_URL,
+    transcribeModel: e.TRANSCRIBE_MODEL,
+    audioMaxBytes: e.AUDIO_MAX_BYTES,
   };
 }

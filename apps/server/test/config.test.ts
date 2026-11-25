@@ -100,6 +100,40 @@ describe("loadConfig", () => {
     });
   });
 
+  describe("audio transcription", () => {
+    const waha = { WHATSAPP_PROVIDER: "waha", WAHA_API_KEY: "k", WAHA_WEBHOOK_SECRET: "s" };
+
+    it("is off by default and requires nothing", () => {
+      const c = loadConfig({ ...required });
+      expect(c.audioTranscription).toBe("off");
+      expect(c.groqApiKey).toBeNull();
+      expect(c.transcribeUrl).toBe("https://api.groq.com/openai/v1/audio/transcriptions");
+      expect(c.transcribeModel).toBe("whisper-large-v3-turbo");
+      expect(c.audioMaxBytes).toBe(2_000_000);
+    });
+
+    it("groq requires GROQ_API_KEY, naming it without values", () => {
+      expect(() => loadConfig({ ...required, ...waha, AUDIO_TRANSCRIPTION: "groq" })).toThrow(/GROQ_API_KEY/);
+      const c = loadConfig({ ...required, ...waha, AUDIO_TRANSCRIPTION: "groq", GROQ_API_KEY: "groq-key-should-never-leak", AUDIO_MAX_BYTES: "500000" });
+      expect([c.audioTranscription, c.groqApiKey, c.audioMaxBytes]).toEqual(["groq", "groq-key-should-never-leak", 500000]);
+    });
+
+    it("groq requires WHATSAPP_PROVIDER=waha", () => {
+      let message = "";
+      try {
+        loadConfig({ ...required, AUDIO_TRANSCRIPTION: "groq", GROQ_API_KEY: "groq-key-should-never-leak" });
+      } catch (e) {
+        message = (e as Error).message;
+      }
+      expect(message).toMatch(/WHATSAPP_PROVIDER=waha/);
+      expect(message).not.toContain("groq-key-should-never-leak");
+    });
+
+    it("rejects an unknown provider", () => {
+      expect(() => loadConfig({ ...required, AUDIO_TRANSCRIPTION: "openai" })).toThrow(/AUDIO_TRANSCRIPTION/);
+    });
+  });
+
   it("never includes variable values in the error message", () => {
     const env = {
       DATABASE_URL: "postgres://leaky-db-value",
