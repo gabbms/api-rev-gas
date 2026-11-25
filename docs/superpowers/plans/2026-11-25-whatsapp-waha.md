@@ -90,9 +90,9 @@ adapte; não importe arquivos de lá. Se a leitura fora da pasta for bloqueada, 
 - Produces: `buildWahaWebhookServer(deps: { cfg; db; resolveLid; onInbound: (m: InboundMessage) => Promise<void> }): FastifyInstance` com **apenas** `POST /webhooks/waha`. Confere o segredo (401 sem ele), responde 200 e, depois da resposta: resolve `@lid` (sem telefone: log "contato @lid sem telefone; mensagem ignorada", sem conteúdo), `INSERT ... ON CONFLICT DO NOTHING` em `inbound_events` (se não inseriu, ignora), filtra `whatsappAllowedNumbers` e chama `onInbound`.
 - Escuta em `127.0.0.1:whatsappWebhookPort`. **Verificação manual na Task 7:** se o WAHA no Docker não alcançar `127.0.0.1` pelo `host.docker.internal`, trocar para `0.0.0.0` só neste servidor (ele só tem a rota protegida pelo segredo) e registrar a decisão.
 
-- [ ] **Step 1: Testes que falham** — **Review Focus 2:** sem segredo → 401 e `onInbound` não chamado; válido → 200 e `onInbound` 1 vez; **Review Focus 1:** o mesmo evento duas vezes → 1 vez; **Review Focus 3:** `@lid` resolvido segue, não resolvido é descartado; número fora da lista → ignorado; `/conversations`, `/ws`, `/health` → 404; nenhuma resposta contém os segredos.
-- [ ] **Step 2:** FAIL. **Step 3:** implementar. **Step 4:** PASS.
-- [ ] **Step 5:** Commit `feat: add WAHA webhook server on its own port`.
+- [x] **Step 1: Testes que falham** — **Review Focus 2:** sem segredo → 401 e `onInbound` não chamado; válido → 200 e `onInbound` 1 vez; **Review Focus 1:** o mesmo evento duas vezes → 1 vez; **Review Focus 3:** `@lid` resolvido segue, não resolvido é descartado; número fora da lista → ignorado; `/conversations`, `/ws`, `/health` → 404; nenhuma resposta contém os segredos.
+- [x] **Step 2:** FAIL. **Step 3:** implementar. **Step 4:** PASS.
+- [x] **Step 5:** Commit `feat: add WAHA webhook server on its own port`.
 
 ---
 
