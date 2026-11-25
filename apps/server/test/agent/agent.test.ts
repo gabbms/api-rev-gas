@@ -551,6 +551,11 @@ describe("tools", () => {
     expect(SYSTEM_PROMPT).toContain('"P13" é o GLP 13 kg e "P45" é o GLP 45 kg');
   });
 
+  it("warns that transcribed audio may get names, numbers and addresses wrong", () => {
+    expect(SYSTEM_PROMPT).toContain("[Áudio do cliente, transcrito automaticamente]");
+    expect(SYSTEM_PROMPT).toContain("podem ter erros em nomes, números e endereços; se algo parecer estranho, pergunte");
+  });
+
   it("treats the WhatsApp options as approval of the last summary or a request to change it", () => {
     expect(SYSTEM_PROMPT).toContain('"Confirmar" (opção da lista do WhatsApp) é a aprovação do último resumo enviado');
     expect(SYSTEM_PROMPT).toContain('"Mudar algo" quer dizer que o cliente quer mudar o pedido: pergunte o que mudar');

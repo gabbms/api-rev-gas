@@ -2,7 +2,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import { config as loadDotenv } from "dotenv";
 import { Catalog } from "./catalog/catalog.js";
 import { createOutgoingRouter } from "./channels/router.js";
-import { createWahaLidResolver, createWahaSender } from "./channels/waha/client.js";
+import { createOpenAICompatibleTranscriber } from "./audio/transcriber.js";
+import { createAudioToInbound } from "./channels/waha/audio.js";
+import { createWahaLidResolver, createWahaMediaDownloader, createWahaSender } from "./channels/waha/client.js";
 import { buildWahaWebhookServer } from "./channels/waha/server.js";
 import { loadConfig } from "./config.js";
 import { ConversationService } from "./conversations/conversationService.js";
@@ -55,29 +57,42 @@ console.info(
     : "[revgas] escrita desligada: vendas são simuladas",
 );
 
-// The webhook has its own server and port, with only POST /webhooks/waha; the panel never sees WAHA traffic.
-const webhook = waha
-  ? buildWahaWebhookServer({
-      cfg,
-      db,
-      resolveLid: createWahaLidResolver(waha),
-      onInbound: (m, receivedAt) =>
-        conversations.handleInbound({
-          channel: "whatsapp",
-          address: m.from,
-          rawPhone: m.from,
-          text: m.text,
-          kind: m.kind === "audio" ? "unsupported" : m.kind,
-          receivedAt,
-        }),
+// Voice notes: downloaded from WAHA and transcribed only with AUDIO_TRANSCRIPTION=groq (the audio goes to Groq).
+const toInbound = waha
+  ? createAudioToInbound({
+      download: createWahaMediaDownloader({ baseUrl: waha.baseUrl, apiKey: waha.apiKey, maxBytes: cfg.audioMaxBytes }),
+      transcriber:
+        cfg.audioTranscription === "groq"
+          ? createOpenAICompatibleTranscriber({ apiKey: cfg.groqApiKey!, url: cfg.transcribeUrl, model: cfg.transcribeModel })
+          : null,
     })
   : null;
+
+// The webhook has its own server and port, with only POST /webhooks/waha; the panel never sees WAHA traffic.
+const webhook =
+  waha && toInbound
+    ? buildWahaWebhookServer({
+        cfg,
+        db,
+        resolveLid: createWahaLidResolver(waha),
+        // Runs inside the sender's queue, so a slow transcription keeps the order of that sender's messages.
+        onInbound: async (m, receivedAt) => {
+          const { kind, text } = await toInbound(m);
+          await conversations.handleInbound({ channel: "whatsapp", address: m.from, rawPhone: m.from, text, kind, receivedAt });
+        },
+      })
+    : null;
 if (webhook) {
   await webhook.listen({ port: cfg.whatsappWebhookPort, host: "127.0.0.1" });
   console.warn("[whatsapp] aviso: WhatsApp não oficial (WAHA), só para demonstração; o número pode ser banido");
   console.info(
     `[whatsapp] webhook em http://127.0.0.1:${cfg.whatsappWebhookPort}/webhooks/waha` +
       (cfg.whatsappAllowedNumbers ? ` (só ${cfg.whatsappAllowedNumbers.length} número(s) permitidos)` : " (qualquer número)"),
+  );
+  console.info(
+    cfg.audioTranscription === "groq"
+      ? `[áudio] transcrição ligada (${cfg.transcribeModel}); o áudio do cliente é enviado à Groq`
+      : "[áudio] transcrição desligada: áudios recebem \"entendo só texto\"",
   );
 }
 

@@ -11,6 +11,9 @@ import {
   ConversationService,
   HANDOFF_TEXT,
   UNSUPPORTED_TEXT,
+  AUDIO_FAILED_TEXT,
+  AUDIO_TOO_LONG_TEXT,
+  type Inbound,
   type Outgoing,
   type RunTurn,
 } from "../../src/conversations/conversationService.js";
@@ -248,7 +251,7 @@ describe("ConversationService — WhatsApp channel", () => {
   let wa: FakeWhatsAppSender;
   const hub = { message: async () => undefined, changed: () => undefined };
   const waService = (runTurn: RunTurn) => new ConversationService(deps, createOutgoingRouter({ db, hub, whatsapp: wa }), undefined, runTurn);
-  const fromWhatsApp = (text: string, kind: "text" | "unsupported" = "text", address = "5586999998888") =>
+  const fromWhatsApp = (text: string, kind: NonNullable<Inbound["kind"]> = "text", address = "5586999998888") =>
     ({ channel: "whatsapp", address, rawPhone: address, text, kind }) as const;
 
   beforeEach(() => {
@@ -330,6 +333,41 @@ describe("ConversationService — WhatsApp channel", () => {
     expect(wa.sent).toEqual([{ to: "5586999998888", text: UNSUPPORTED_TEXT }]);
     const conv = await conversationByPhone("86999998888");
     expect((await waService(runTurn).history(conv!.id)).map((m) => m.text)).toEqual(["[áudio]", UNSUPPORTED_TEXT]);
+  });
+
+  it("a transcribed audio is stored with 🎤 and reaches the AI with the audio prefix", async () => {
+    const seen: string[] = [];
+    await waService(async (ctx, text) => {
+      seen.push(text);
+      return { replyText: "Certo!", events: ctx.events };
+    }).handleInbound(fromWhatsApp("quero um botijão", "audio"));
+    expect(seen).toEqual(["[Áudio do cliente, transcrito automaticamente] quero um botijão"]);
+    const conv = await conversationByPhone("86999998888");
+    expect((await waService(replying(null)).history(conv!.id)).map((m) => m.text)).toEqual(["🎤 quero um botijão", "Certo!"]);
+  });
+
+  it.each([
+    ["audio_failed", "[áudio não transcrito]", AUDIO_FAILED_TEXT, "Não consegui entender o seu áudio. Pode escrever para mim?"],
+    ["audio_too_long", "[áudio longo demais]", AUDIO_TOO_LONG_TEXT, "Esse áudio ficou longo demais para mim. Pode mandar um mais curto ou escrever?"],
+  ] as const)("%s: stores the placeholder, answers the fixed text and does not call the AI", async (kind, stored, reply, literal) => {
+    const runTurn = vi.fn(replying("não devia"));
+    await waService(runTurn).handleInbound(fromWhatsApp(stored, kind));
+    expect(reply).toBe(literal);
+    expect(runTurn).not.toHaveBeenCalled();
+    expect(wa.sent).toEqual([{ to: "5586999998888", text: reply }]);
+    const conv = await conversationByPhone("86999998888");
+    expect((await waService(runTurn).history(conv!.id)).map((m) => m.text)).toEqual([stored, reply]);
+  });
+
+  it("Review Focus 5: an audio while a human attends is stored for the attendant, with no reply and no AI", async () => {
+    await db.insert(conversations).values({ phone: "86999998888", mode: "human", channel: "whatsapp", channelAddress: "5586999998888" });
+    const runTurn = vi.fn(replying("não devia"));
+    await waService(runTurn).handleInbound(fromWhatsApp("meu gás veio vazando", "audio"));
+    await waService(runTurn).handleInbound(fromWhatsApp("[áudio não transcrito]", "audio_failed"));
+    expect(runTurn).not.toHaveBeenCalled();
+    expect(wa.sent).toEqual([]);
+    const conv = await conversationByPhone("86999998888");
+    expect((await waService(runTurn).history(conv!.id)).map((m) => m.text)).toEqual(["🎤 meu gás veio vazando", "[áudio não transcrito]"]);
   });
 
   it("an audio while a human attends gets no automatic reply", async () => {

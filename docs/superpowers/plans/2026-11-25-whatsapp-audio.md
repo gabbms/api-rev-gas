@@ -169,12 +169,12 @@ teste do prompt se existir
 - `main.ts`: no `onInbound`, `await toInbound(m)` antes de `handleInbound` (continua dentro da fila do
   remetente, então a ordem das mensagens se mantém), passando `receivedAt`.
 
-- [ ] **Step 1: Testes que falham** — `audio.test.ts` com `FakeTranscriber` e downloader falso: os cinco
+- [x] **Step 1: Testes que falham** — `audio.test.ts` com `FakeTranscriber` e downloader falso: os cinco
   caminhos acima; com `off`, o downloader nem é chamado (**Review Focus 4**). conversationService: `audio` grava
   `🎤 ...` e a IA falsa recebe o prefixo; `audio_failed` responde o texto fixo e a IA falsa não é chamada;
   **Review Focus 5:** modo humano + `audio` → mensagem gravada, nenhuma resposta, IA não chamada.
-- [ ] **Step 2:** FAIL. **Step 3:** implementar. **Step 4:** PASS.
-- [ ] **Step 5:** Commit `feat: transcribe WhatsApp voice notes into the conversation`.
+- [x] **Step 2:** FAIL. **Step 3:** implementar. **Step 4:** PASS.
+- [x] **Step 5:** Commit `feat: transcribe WhatsApp voice notes into the conversation`.
 
 ---
 

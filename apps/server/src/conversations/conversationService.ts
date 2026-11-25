@@ -22,8 +22,11 @@ export type Inbound = {
   address: string | null;
   rawPhone: string;
   text: string;
-  /** Not text (audio, image, sticker…): fixed reply, the AI is not called. */
-  kind?: "text" | "unsupported";
+  /**
+   * text: goes to the AI. audio: `text` is the transcription (stored with 🎤, sent to the AI with a
+   * prefix). unsupported / audio_failed / audio_too_long: fixed reply, the AI is not called.
+   */
+  kind?: "text" | "unsupported" | "audio" | "audio_failed" | "audio_too_long";
   /** When the message reached us (WhatsApp: the webhook POST). Defaults to now. */
   receivedAt?: Date;
 };
@@ -34,6 +37,17 @@ export const HANDOFF_TEXT = "Vou chamar um atendente para te ajudar. Só um inst
 export const EMPTY_TURN_TEXT = "Desculpe, não entendi. Pode repetir?";
 export const UNSUPPORTED_TEXT = "Por enquanto eu entendo só mensagens de texto. Pode escrever o seu pedido?";
 export const WHATSAPP_ONLY_TEXT = "Esta conversa é do WhatsApp; responda pelo painel";
+export const AUDIO_FAILED_TEXT = "Não consegui entender o seu áudio. Pode escrever para mim?";
+export const AUDIO_TOO_LONG_TEXT = "Esse áudio ficou longo demais para mim. Pode mandar um mais curto ou escrever?";
+/** What the AI sees before a transcribed voice note (the prompt explains it). */
+export const AUDIO_PREFIX = "[Áudio do cliente, transcrito automaticamente]";
+
+/** Messages answered with a fixed text, without the AI (none while a human attends). */
+const FIXED_REPLY: Partial<Record<NonNullable<Inbound["kind"]>, string>> = {
+  unsupported: UNSUPPORTED_TEXT,
+  audio_failed: AUDIO_FAILED_TEXT,
+  audio_too_long: AUDIO_TOO_LONG_TEXT,
+};
 
 /** A simulated-chat message aimed at a real WhatsApp customer's conversation. */
 export class ChannelMismatchError extends Error {
@@ -85,18 +99,22 @@ export class ConversationService {
     // Timestamps use the app clock, same as presentedAt (the DB/Docker clock may drift).
     // Stored with the arrival time, so it reflects when the customer actually wrote it relative to
     // when a summary was presented, even if it waited in the sender's queue.
+    const isAudio = m.kind === "audio";
     await this.deps.db
       .insert(messages)
-      .values({ conversationId: conv.id, author: "customer", text: m.text, createdAt: m.receivedAt ?? new Date() });
+      .values({ conversationId: conv.id, author: "customer", text: isAudio ? `🎤 ${m.text}` : m.text, createdAt: m.receivedAt ?? new Date() });
     this.onChange?.(conv.id);
-    if (m.kind === "unsupported") {
+    const fixed = m.kind ? FIXED_REPLY[m.kind] : undefined;
+    if (fixed) {
       await this.enqueue(conv.id, async () => {
         if ((await this.get(conv.id)).mode === "human") return;
-        await this.deliver({ conversationId: conv.id, phone, author: "bot", text: UNSUPPORTED_TEXT });
+        await this.deliver({ conversationId: conv.id, phone, author: "bot", text: fixed });
       });
       return;
     }
-    await this.enqueue(conv.id, () => this.process(conv.id, phone, m.text));
+    // A transcribed voice note goes the same way as text (prices, summary and confirmation stay in code).
+    const forAi = isAudio ? `${AUDIO_PREFIX} ${m.text}` : m.text;
+    await this.enqueue(conv.id, () => this.process(conv.id, phone, forAi));
   }
 
   async attendantReply(conversationId: string, text: string): Promise<void> {
