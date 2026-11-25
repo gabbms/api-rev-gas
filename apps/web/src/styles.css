@@ -205,3 +205,11 @@ button, input { font: inherit; color: inherit; }
 .log-tool { color: var(--steel); font-size: var(--step--1); }
 .log-tool code { font-family: inherit; font-weight: 700; color: var(--flame); margin-right: 4px; }
 .log-tool.failed code { color: #b3261e; }
+
+/* Channel */
+.badges { display: flex; gap: 4px; align-self: center; }
+.badge.channel.whatsapp { background: #d7f0e1; color: #1d5b3a; }
+.badge.channel.simulated { background: var(--paper); color: var(--steel); }
+.detail-head .badge.channel { margin-left: 8px; }
+.undelivered { display: inline-block; margin-left: 8px; font-size: var(--step--1); font-weight: 700; color: #b3261e; }
+.field-note { color: var(--ink); background: var(--signal); font-size: var(--step--1); margin: 8px 0 0; padding: 4px 8px; border-radius: 6px; }

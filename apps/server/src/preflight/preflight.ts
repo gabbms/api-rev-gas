@@ -89,19 +89,56 @@ export async function probeRoutes(cfg: AppConfig, limiter: RateLimiter, fetchFn:
   return probes;
 }
 
-export function formatReport(rows: Row[], probes: Probe[]): string {
+/** WHATSAPP_PROVIDER and, with waha, the WAHA session status. Off: no call at all. Never prints keys. */
+export async function checkWhatsapp(cfg: AppConfig, fetchFn: typeof fetch = fetch): Promise<Row[]> {
+  if (cfg.whatsappProvider === "off") return [{ name: "WHATSAPP_PROVIDER", value: "off", warnings: [] }];
+  const rows: Row[] = [{ name: "WHATSAPP_PROVIDER", value: "waha", warnings: ["WAHA não é oficial: use chip reserva"] }];
+
+  const session = cfg.wahaSession;
+  let value = `${session}: ?`;
+  const warnings: string[] = [];
+  try {
+    const res = await fetchFn(`${cfg.wahaUrl}/api/sessions/${encodeURIComponent(session)}`, {
+      headers: { "X-Api-Key": cfg.wahaApiKey ?? "", Accept: "application/json" },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (res.status === 401 || res.status === 403) warnings.push("WAHA recusou WAHA_API_KEY: confira o .env e suba o WAHA de novo");
+    else if (res.status === 404) warnings.push(`a sessão ${session} não existe: inicie-a no painel do WAHA`);
+    else if (!res.ok) warnings.push(`WAHA respondeu HTTP ${res.status}`);
+    else {
+      const body = (await res.json().catch(() => ({}))) as { status?: unknown };
+      const status = typeof body.status === "string" ? body.status : "?";
+      value = `${session}: ${status}`;
+      if (status !== "WORKING") warnings.push("sessão não conectada: escaneie o QR no painel do WAHA (http://localhost:3002/dashboard)");
+    }
+  } catch {
+    warnings.push(`WAHA não respondeu em ${cfg.wahaUrl}: suba com docker compose -f docker-compose.waha.yml up -d`);
+  }
+  rows.push({ name: "WAHA_SESSION", value, warnings });
+
+  rows.push({
+    name: "WHATSAPP_ALLOWED_NUMBERS",
+    value: cfg.whatsappAllowedNumbers ? cfg.whatsappAllowedNumbers.join(",") : "(vazio)",
+    warnings: cfg.whatsappAllowedNumbers ? [] : ["vazio: qualquer pessoa que souber o número usa o bot e gasta créditos da IA"],
+  });
+  return rows;
+}
+
+function table(rows: Row[]): string[] {
   const nameW = Math.max(...rows.map((r) => r.name.length));
   const valueW = Math.max(...rows.map((r) => r.value.length));
-  const lines = ["Configuração que depende da RevGás", ""];
-  for (const r of rows) {
-    lines.push(`${r.name.padEnd(nameW)}  ${r.value.padEnd(valueW)}  ${r.warnings.length ? "⚠ " + r.warnings.join("; ") : "ok"}`);
-  }
+  return rows.map((r) => `${r.name.padEnd(nameW)}  ${r.value.padEnd(valueW)}  ${r.warnings.length ? "⚠ " + r.warnings.join("; ") : "ok"}`);
+}
+
+export function formatReport(rows: Row[], probes: Probe[], whatsapp: Row[] = []): string {
+  const lines = ["Configuração que depende da RevGás", "", ...table(rows)];
   lines.push("", "Leituras de teste (só GET, nenhuma escrita)", "");
   for (const p of probes) {
     const label = p.status === 200 ? "200 ok" : p.status === 403 ? "403 sem acesso" : String(p.status);
     lines.push(`GET ${p.route.padEnd(11)} ${label}`);
   }
-  const total = rows.reduce((n, r) => n + r.warnings.length, 0);
+  if (whatsapp.length) lines.push("", "WhatsApp", "", ...table(whatsapp));
+  const total = [...rows, ...whatsapp].reduce((n, r) => n + r.warnings.length, 0);
   lines.push("", total === 0 ? "Nenhum aviso." : `${total} aviso(s).`);
   return lines.join("\n");
 }

@@ -16,6 +16,8 @@ export function ChatPane({ conversations }: { conversations: ConversationSummary
   const scroller = useRef<HTMLDivElement>(null);
 
   const conversation = conversations.find((c) => c.phone === phone);
+  // Typing here would speak as a real WhatsApp customer: the server refuses it, and so does the form.
+  const isWhatsApp = conversation?.channel === "whatsapp";
 
   // Load the stored history once per phone, as soon as its conversation exists.
   useEffect(() => {
@@ -52,7 +54,7 @@ export function ChatPane({ conversations }: { conversations: ConversationSummary
   function submit(e: FormEvent) {
     e.preventDefault();
     const text = draft.trim();
-    if (!text || !phone) return;
+    if (!text || !phone || isWhatsApp) return;
     if (!connection.send({ type: "customer_message", phone, text })) {
       setProblem("Sem conexão com o servidor. Verifique se ele está rodando e tente de novo.");
       return;
@@ -81,6 +83,7 @@ export function ChatPane({ conversations }: { conversations: ConversationSummary
           />
         </label>
         {!phone && <p className="field-error">Use DDD + número, ex.: 86999998888.</p>}
+        {isWhatsApp && <p className="field-note">Esta conversa é do WhatsApp; responda pelo painel.</p>}
       </header>
 
       <div className="thread" ref={scroller} aria-live="polite">
@@ -103,10 +106,10 @@ export function ChatPane({ conversations }: { conversations: ConversationSummary
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder={phone ? `Mensagem de ${formatPhone(phone)}` : "Informe um telefone válido"}
-          disabled={!phone}
+          disabled={!phone || isWhatsApp}
           aria-label="Mensagem do cliente"
         />
-        <button type="submit" disabled={!phone || !draft.trim()}>
+        <button type="submit" disabled={!phone || isWhatsApp || !draft.trim()}>
           Enviar
         </button>
       </form>

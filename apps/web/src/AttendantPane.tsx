@@ -70,7 +70,10 @@ export function AttendantPane({ conversations, version }: { conversations: Conve
                 aria-pressed={c.id === selectedId}
               >
                 <span className="conv-phone">{formatPhone(c.phone)}</span>
-                <span className={`badge ${c.mode}`}>{c.mode === "human" ? "Humano" : "Bot"}</span>
+                <span className="badges">
+                  <span className={`badge channel ${c.channel}`}>{c.channel === "whatsapp" ? "WhatsApp" : "Simulado"}</span>
+                  <span className={`badge ${c.mode}`}>{c.mode === "human" ? "Humano" : "Bot"}</span>
+                </span>
                 {c.handoffReason && <span className="conv-reason">{c.handoffReason}</span>}
                 <span className="conv-time">{time(c.lastMessageAt)}</span>
               </button>
@@ -85,6 +88,7 @@ export function AttendantPane({ conversations, version }: { conversations: Conve
             <>
               <div className="detail-head">
                 <strong>{formatPhone(selected.phone)}</strong>
+                <span className={`badge channel ${selected.channel}`}>{selected.channel === "whatsapp" ? "WhatsApp" : "Simulado"}</span>
                 <button className="ghost small" aria-pressed={showTrace} onClick={() => setShowTrace((v) => !v)}>
                   {showTrace ? "Ocultar bastidores" : "Ver bastidores"}
                 </button>
@@ -122,6 +126,7 @@ export function AttendantPane({ conversations, version }: { conversations: Conve
                     <span className="log-who">{AUTHOR_LABEL[m.author] ?? m.author}</span>
                     <span className="log-text">
                       <MessageText text={m.text} />
+                      {m.deliveryStatus === "failed" && <span className="undelivered">não entregue</span>}
                     </span>
                     <time>{time(m.createdAt)}</time>
                   </li>

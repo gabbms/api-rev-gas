@@ -134,9 +134,9 @@ adapte; não importe arquivos de lá. Se a leitura fora da pasta for bloqueada, 
 - Painel: selo **WhatsApp** ou **Simulado** em cada conversa; mensagem com `deliveryStatus = "failed"` mostra "não entregue". No chat simulado, aviso quando o número escolhido é de uma conversa do WhatsApp: "Esta conversa é do WhatsApp; responda pelo painel".
 - Preflight: `WHATSAPP_PROVIDER`; com `waha`, consulta `GET {WAHA_URL}/api/sessions/{session}` (com `X-Api-Key`) e mostra o status (`WORKING` = ok; outro = aviso "escaneie o QR"); aviso fixo "WAHA não é oficial: use chip reserva"; aviso se `WHATSAPP_ALLOWED_NUMBERS` estiver vazio ("qualquer pessoa que souber o número usa o bot e gasta créditos da IA").
 
-- [ ] **Step 1: Testes que falham** (preflight com fetch falso): `WORKING` → ok; `SCAN_QR_CODE` → aviso; WAHA fora do ar → "WAHA não respondeu"; `off` → nenhuma chamada.
-- [ ] **Step 2:** FAIL. **Step 3:** implementar. **Step 4:** PASS e `pnpm -r exec tsc --noEmit` sem erros.
-- [ ] **Step 5:** Commit `feat: show WhatsApp channel in the panel and check WAHA in preflight`.
+- [x] **Step 1: Testes que falham** (preflight com fetch falso): `WORKING` → ok; `SCAN_QR_CODE` → aviso; WAHA fora do ar → "WAHA não respondeu"; `off` → nenhuma chamada.
+- [x] **Step 2:** FAIL. **Step 3:** implementar. **Step 4:** PASS e `pnpm -r exec tsc --noEmit` sem erros.
+- [x] **Step 5:** Commit `feat: show WhatsApp channel in the panel and check WAHA in preflight`.
 
 ---
 

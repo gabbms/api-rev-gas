@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { loadConfig } from "../../src/config.js";
-import { assessConfig, formatReport, probeRoutes } from "../../src/preflight/preflight.js";
+import { assessConfig, checkWhatsapp, formatReport, probeRoutes } from "../../src/preflight/preflight.js";
 import { RateLimiter } from "../../src/revgas/rateLimiter.js";
 
 const KEY = "preflight-secret-key-never-printed";
@@ -107,5 +107,60 @@ describe("formatReport", () => {
     expect(text).toContain("403");
     expect(text).not.toContain(KEY);
     expect(text).not.toContain("anthropic-secret-never-printed");
+  });
+});
+
+describe("checkWhatsapp", () => {
+  const WAHA_KEY = "waha-key-never-printed";
+  const waha = (env: Record<string, string> = {}) =>
+    cfg({ WHATSAPP_PROVIDER: "waha", WAHA_API_KEY: WAHA_KEY, WAHA_WEBHOOK_SECRET: "webhook-secret-never-printed", ...env });
+  const answering = (status: number, body: unknown = {}) =>
+    vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify(body), { status }));
+  const rowsText = (rows: Awaited<ReturnType<typeof checkWhatsapp>>) => rows.map((r) => `${r.name} ${r.value} ${r.warnings.join(" | ")}`).join("\n");
+
+  it("off: one row and no call to WAHA", async () => {
+    const fetchFn = answering(200);
+    const rows = await checkWhatsapp(cfg(), fetchFn as unknown as typeof fetch);
+    expect(rows).toEqual([{ name: "WHATSAPP_PROVIDER", value: "off", warnings: [] }]);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it("WORKING session: ok, asked with the key, and the fixed unofficial warning", async () => {
+    const fetchFn = answering(200, { name: "default", status: "WORKING" });
+    const rows = await checkWhatsapp(waha({ WHATSAPP_ALLOWED_NUMBERS: "86911112222" }), fetchFn as unknown as typeof fetch);
+    expect(String(fetchFn.mock.calls[0]![0])).toBe("http://localhost:3002/api/sessions/default");
+    expect(new Headers(fetchFn.mock.calls[0]![1]?.headers).get("x-api-key")).toBe(WAHA_KEY);
+    expect(rows.find((r) => r.name === "WAHA_SESSION")).toEqual({ name: "WAHA_SESSION", value: "default: WORKING", warnings: [] });
+    expect(rows.find((r) => r.name === "WHATSAPP_PROVIDER")!.warnings).toEqual(["WAHA não é oficial: use chip reserva"]);
+    expect(rows.find((r) => r.name === "WHATSAPP_ALLOWED_NUMBERS")!.warnings).toEqual([]);
+  });
+
+  it("SCAN_QR_CODE: warns to scan the QR", async () => {
+    const rows = await checkWhatsapp(waha(), answering(200, { status: "SCAN_QR_CODE" }) as unknown as typeof fetch);
+    expect(rows.find((r) => r.name === "WAHA_SESSION")!.warnings.join()).toContain("escaneie o QR");
+  });
+
+  it("WAHA down: 'WAHA não respondeu'", async () => {
+    const fetchFn = vi.fn(async () => {
+      throw new TypeError("fetch failed");
+    });
+    const rows = await checkWhatsapp(waha(), fetchFn as unknown as typeof fetch);
+    expect(rows.find((r) => r.name === "WAHA_SESSION")!.warnings.join()).toContain("WAHA não respondeu");
+  });
+
+  it("a wrong key: says WAHA refused WAHA_API_KEY", async () => {
+    const rows = await checkWhatsapp(waha(), answering(401) as unknown as typeof fetch);
+    expect(rows.find((r) => r.name === "WAHA_SESSION")!.warnings.join()).toContain("WAHA_API_KEY");
+  });
+
+  it("warns when anyone can use the bot, and never prints the secrets", async () => {
+    const rows = await checkWhatsapp(waha(), answering(200, { status: "WORKING" }) as unknown as typeof fetch);
+    expect(rows.find((r) => r.name === "WHATSAPP_ALLOWED_NUMBERS")!.warnings.join()).toContain(
+      "qualquer pessoa que souber o número usa o bot e gasta créditos da IA",
+    );
+    const text = formatReport(assessConfig(waha(), []), [], rows) + rowsText(rows);
+    expect(text).toContain("WhatsApp");
+    expect(text).not.toContain(WAHA_KEY);
+    expect(text).not.toContain("webhook-secret-never-printed");
   });
 });
