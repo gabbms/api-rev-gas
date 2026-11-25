@@ -49,9 +49,9 @@ adapte; não importe arquivos de lá. Se a leitura fora da pasta for bloqueada, 
 - `conversations`: `channel text not null default 'simulated'` (`simulated | whatsapp`), `channelAddress text null`. Tabela `inbound_events` (`id text pk`, `receivedAt`). `messages.deliveryStatus text null` (`sent | failed`).
 - `docker-compose.yml`: serviço `waha` adaptado do Rev-Gás: `127.0.0.1:3002:3000`, `WHATSAPP_DEFAULT_ENGINE: GOWS`, `WHATSAPP_HOOK_URL: http://host.docker.internal:3334/webhooks/waha`, `WHATSAPP_HOOK_EVENTS: message`, `WHATSAPP_HOOK_CUSTOM_HEADERS: "X-Revgas-Secret:${WAHA_WEBHOOK_SECRET}"`, `WHATSAPP_DOWNLOAD_MEDIA: "false"`, chave e painel com `${WAHA_API_KEY}`, volume `./.waha/sessions`, `extra_hosts: host.docker.internal:host-gateway`, `profiles: ["whatsapp"]` (sobe só com `docker compose --profile whatsapp up -d`). `.waha/` no `.gitignore`.
 
-- [ ] **Step 1: Testes que falham** — `waha` sem `WAHA_WEBHOOK_SECRET` → erro que nomeia a variável e não contém valores; `off` não exige nada; `WHATSAPP_ALLOWED_NUMBERS="5586911112222, 86933334444"` → dígitos normalizados; mesmo id em `inbound_events` duas vezes → violação de unicidade.
-- [ ] **Step 2:** FAIL. **Step 3:** implementar e gerar a migração. **Step 4:** PASS.
-- [ ] **Step 5:** Commit `feat: add WAHA configuration, compose service and channel columns`.
+- [x] **Step 1: Testes que falham** — `waha` sem `WAHA_WEBHOOK_SECRET` → erro que nomeia a variável e não contém valores; `off` não exige nada; `WHATSAPP_ALLOWED_NUMBERS="5586911112222, 86933334444"` → dígitos normalizados; mesmo id em `inbound_events` duas vezes → violação de unicidade.
+- [x] **Step 2:** FAIL. **Step 3:** implementar e gerar a migração. **Step 4:** PASS.
+- [x] **Step 5:** Commit `feat: add WAHA configuration, compose service and channel columns`.
 
 ---
 
@@ -76,9 +76,9 @@ adapte; não importe arquivos de lá. Se a leitura fora da pasta for bloqueada, 
   ```
   Regras do Rev-Gás a manter: `X-Api-Key` no header; `chatId` via `/api/contacts/check-exists` com cache (nono dígito); título da lista = primeira linha sem asteriscos (até 60 caracteres); ignora `fromMe`, grupos e eventos que não sejam `message`; mídia vira `unsupported`; id da mensagem enviada extraído das várias formas do WAHA.
 
-- [ ] **Step 1: Testes que falham** (fetch falso), adaptando `tests/whatsapp/waha.test.ts` do Rev-Gás: `sendText` usa o `chatId` devolvido por `check-exists` (**Review Focus 4**: `558699998888` → `558699998888@c.us` informado pelo WAHA); `sendChoices` monta `sendList` com 2 linhas; 401 → `auth`, 501 → `unavailable`, 5xx → `server`, exceção → `network`; a chave nunca aparece no erro; `verifyWahaSecret` certo/errado/ausente; parser: texto, `fromMe`, grupo, `@lid`, áudio → `unsupported`, payload malformado → listas vazias.
-- [ ] **Step 2:** FAIL. **Step 3:** implementar. **Step 4:** PASS.
-- [ ] **Step 5:** Commit `feat: add WAHA sender and webhook parser adapted from Rev-Gás`.
+- [x] **Step 1: Testes que falham** (fetch falso), adaptando `tests/whatsapp/waha.test.ts` do Rev-Gás: `sendText` usa o `chatId` devolvido por `check-exists` (**Review Focus 4**: `558699998888` → `558699998888@c.us` informado pelo WAHA); `sendChoices` monta `sendList` com 2 linhas; 401 → `auth`, 501 → `unavailable`, 5xx → `server`, exceção → `network`; a chave nunca aparece no erro; `verifyWahaSecret` certo/errado/ausente; parser: texto, `fromMe`, grupo, `@lid`, áudio → `unsupported`, payload malformado → listas vazias.
+- [x] **Step 2:** FAIL. **Step 3:** implementar. **Step 4:** PASS.
+- [x] **Step 5:** Commit `feat: add WAHA sender and webhook parser adapted from Rev-Gás`.
 
 ---
 
