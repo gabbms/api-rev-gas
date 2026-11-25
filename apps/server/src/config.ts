@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizePhone } from "./revgas/phone.js";
 
 const required = (name: string) =>
   z.string({ error: `${name} é obrigatória` }).min(1, { error: `${name} é obrigatória` });
@@ -32,6 +33,13 @@ const envSchema = z.object({
   ANTHROPIC_MODEL: z.string().min(1).default("claude-opus-5-5"),
   ANTHROPIC_EFFORT: z.enum(["low", "medium", "high"], { error: "ANTHROPIC_EFFORT deve ser low, medium ou high" }).default("medium"),
   PORT: z.coerce.number({ error: "PORT deve ser um número" }).int().positive().default(3333),
+  WHATSAPP_PROVIDER: z.enum(["off", "waha"], { error: "WHATSAPP_PROVIDER deve ser off ou waha" }).default("off"),
+  WAHA_URL: z.string().url({ error: "WAHA_URL inválida" }).default("http://localhost:3002"),
+  WAHA_API_KEY: z.string().optional(),
+  WAHA_WEBHOOK_SECRET: z.string().optional(),
+  WAHA_SESSION: z.string().trim().min(1).default("default"),
+  WHATSAPP_WEBHOOK_PORT: z.coerce.number({ error: "WHATSAPP_WEBHOOK_PORT deve ser um número" }).int().positive().default(3334),
+  WHATSAPP_ALLOWED_NUMBERS: z.string().optional(),
   MAX_ITEM_QUANTITY: z.coerce.number({ error: "MAX_ITEM_QUANTITY deve ser um número" }).int().positive().default(10),
 });
 
@@ -58,6 +66,18 @@ export type AppConfig = {
   anthropicEffort: "low" | "medium" | "high";
   port: number;
   maxItemQuantity: number;
+  /** WhatsApp channel. "waha" is unofficial (demo only); "off" keeps only the simulated chat. */
+  whatsappProvider: "off" | "waha";
+  wahaUrl: string;
+  /** Required with waha. Never logged. */
+  wahaApiKey: string | null;
+  /** Required with waha: the X-Revgas-Secret header WAHA sends on every webhook. Never logged. */
+  wahaWebhookSecret: string | null;
+  wahaSession: string;
+  /** The webhook server's own port (only POST /webhooks/waha). */
+  whatsappWebhookPort: number;
+  /** DDD + number of who may use the bot over WhatsApp; null = anyone. */
+  whatsappAllowedNumbers: string[] | null;
 };
 
 /** Reads and validates configuration. Error messages name variables, never their values. */
@@ -73,6 +93,19 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     throw new Error(`Configuração inválida: ${[...new Set(problems)].join("; ")}`);
   }
   const e = parsed.data;
+  const problems: string[] = [];
+  if (e.WHATSAPP_PROVIDER === "waha") {
+    if (!e.WAHA_API_KEY) problems.push("WAHA_API_KEY é obrigatória com WHATSAPP_PROVIDER=waha");
+    if (!e.WAHA_WEBHOOK_SECRET) problems.push("WAHA_WEBHOOK_SECRET é obrigatória com WHATSAPP_PROVIDER=waha");
+  }
+  let allowed: string[] | null = null;
+  if (e.WHATSAPP_ALLOWED_NUMBERS) {
+    const raw = e.WHATSAPP_ALLOWED_NUMBERS.split(",").map((s) => s.trim()).filter(Boolean);
+    const normalized = raw.map((n) => normalizePhone(n));
+    if (normalized.some((n) => n === null)) problems.push("WHATSAPP_ALLOWED_NUMBERS deve ter telefones com DDD separados por vírgula");
+    else allowed = normalized as string[];
+  }
+  if (problems.length) throw new Error(`Configuração inválida: ${problems.join("; ")}`);
   return {
     databaseUrl: e.DATABASE_URL,
     revgasApiKey: e.REVGAS_API_KEY,
@@ -91,5 +124,12 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     anthropicEffort: e.ANTHROPIC_EFFORT,
     port: e.PORT,
     maxItemQuantity: e.MAX_ITEM_QUANTITY,
+    whatsappProvider: e.WHATSAPP_PROVIDER,
+    wahaUrl: e.WAHA_URL.replace(/\/+$/, ""),
+    wahaApiKey: e.WAHA_API_KEY ?? null,
+    wahaWebhookSecret: e.WAHA_WEBHOOK_SECRET ?? null,
+    wahaSession: e.WAHA_SESSION,
+    whatsappWebhookPort: e.WHATSAPP_WEBHOOK_PORT,
+    whatsappAllowedNumbers: allowed,
   };
 }

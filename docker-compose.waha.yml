@@ -1,0 +1,34 @@
+# WAHA: WhatsApp NÃO oficial, só para a demonstração (o número pode ser banido). Guia: docs/WAHA.md.
+# Fica num arquivo separado do docker-compose.yml de propósito: as variáveis abaixo são obrigatórias
+# (sem elas o WAHA subiria sem senha), e isso não pode impedir o Postgres de subir sozinho.
+# Sobe com: docker compose -f docker-compose.waha.yml up -d
+# WAHA_API_KEY e WAHA_WEBHOOK_SECRET vêm do .env desta pasta.
+name: apirevgas-whatsapp
+services:
+  waha:
+    image: devlikeapro/waha
+    container_name: apirevgas-waha
+    restart: unless-stopped
+    ports:
+      # Só este computador acessa. Nunca exponha esta porta na internet.
+      - "127.0.0.1:3002:3000"
+    environment:
+      # GOWS envia a lista de opções; no WEBJS, sendList responde 501.
+      WHATSAPP_DEFAULT_ENGINE: GOWS
+      WHATSAPP_START_SESSION: ${WAHA_SESSION:-default}
+      WAHA_API_KEY: ${WAHA_API_KEY:?defina WAHA_API_KEY no .env}
+      WAHA_DASHBOARD_USERNAME: admin
+      WAHA_DASHBOARD_PASSWORD: ${WAHA_API_KEY:?defina WAHA_API_KEY no .env}
+      WHATSAPP_SWAGGER_USERNAME: admin
+      WHATSAPP_SWAGGER_PASSWORD: ${WAHA_API_KEY:?defina WAHA_API_KEY no .env}
+      # Cada mensagem recebida vai para o servidor do webhook do apiRevGas (porta própria, só esta rota).
+      WHATSAPP_HOOK_URL: http://host.docker.internal:${WHATSAPP_WEBHOOK_PORT:-3334}/webhooks/waha
+      WHATSAPP_HOOK_EVENTS: message
+      WHATSAPP_HOOK_CUSTOM_HEADERS: "X-Revgas-Secret:${WAHA_WEBHOOK_SECRET:?defina WAHA_WEBHOOK_SECRET no .env}"
+      # O bot entende só texto: não precisa baixar áudio nem imagem.
+      WHATSAPP_DOWNLOAD_MEDIA: "false"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # A sessão do WhatsApp (QR já escaneado) fica aqui, fora do git.
+      - ./.waha/sessions:/app/.sessions

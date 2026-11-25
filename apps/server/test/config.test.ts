@@ -63,6 +63,43 @@ describe("loadConfig", () => {
     expect([other.revgasValegasEnabled, other.revgasPricePriority]).toEqual([false, false]);
   });
 
+  describe("WhatsApp (WAHA)", () => {
+    it("is off by default and requires nothing", () => {
+      const c = loadConfig({ ...required });
+      expect(c.whatsappProvider).toBe("off");
+      expect(c.wahaUrl).toBe("http://localhost:3002");
+      expect(c.wahaSession).toBe("default");
+      expect(c.whatsappWebhookPort).toBe(3334);
+      expect(c.whatsappAllowedNumbers).toBeNull();
+      expect([c.wahaApiKey, c.wahaWebhookSecret]).toEqual([null, null]);
+    });
+
+    it("with waha, requires WAHA_WEBHOOK_SECRET and WAHA_API_KEY without leaking values", () => {
+      const key = "leaky-waha-key-value";
+      let message = "";
+      try {
+        loadConfig({ ...required, WHATSAPP_PROVIDER: "waha", WAHA_API_KEY: key });
+      } catch (e) {
+        message = (e as Error).message;
+      }
+      expect(message).toMatch(/WAHA_WEBHOOK_SECRET/);
+      expect(message).not.toContain(key);
+      expect(() => loadConfig({ ...required, WHATSAPP_PROVIDER: "waha", WAHA_WEBHOOK_SECRET: "s" })).toThrow(/WAHA_API_KEY/);
+      const ok = loadConfig({ ...required, WHATSAPP_PROVIDER: "waha", WAHA_API_KEY: "k", WAHA_WEBHOOK_SECRET: "s" });
+      expect([ok.whatsappProvider, ok.wahaApiKey, ok.wahaWebhookSecret]).toEqual(["waha", "k", "s"]);
+    });
+
+    it("rejects an unknown provider", () => {
+      expect(() => loadConfig({ ...required, WHATSAPP_PROVIDER: "meta" })).toThrow(/WHATSAPP_PROVIDER/);
+    });
+
+    it("normalizes WHATSAPP_ALLOWED_NUMBERS to DDD + number", () => {
+      const c = loadConfig({ ...required, WHATSAPP_ALLOWED_NUMBERS: "5586911112222, 86933334444" });
+      expect(c.whatsappAllowedNumbers).toEqual(["86911112222", "86933334444"]);
+      expect(() => loadConfig({ ...required, WHATSAPP_ALLOWED_NUMBERS: "86911112222,123" })).toThrow(/WHATSAPP_ALLOWED_NUMBERS/);
+    });
+  });
+
   it("never includes variable values in the error message", () => {
     const env = {
       DATABASE_URL: "postgres://leaky-db-value",

@@ -10,3 +10,6 @@ coverage/
 
 # Instruções locais do assistente (não versionar)
 CLAUDE.md
+
+# Sessão do WhatsApp do WAHA (QR escaneado)
+.waha/

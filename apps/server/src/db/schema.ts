@@ -23,8 +23,18 @@ export const conversations = pgTable("conversations", {
   /** When the conversation went to a human; the summary for the AI starts here. */
   handoffAt: timestamp("handoff_at", { withTimezone: true }),
   revgasCustomerId: bigint("revgas_customer_id", { mode: "number" }),
+  /** Where the conversation came from; replies go back through the same channel. */
+  channel: text("channel", { enum: ["simulated", "whatsapp"] }).notNull().default("simulated"),
+  /** WhatsApp: the sender's digits with 55, as WAHA sent them. Null for the simulated chat. */
+  channelAddress: text("channel_address"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
+});
+
+/** Ids of inbound WhatsApp messages already taken, so a repeated webhook is processed once. */
+export const inboundEvents = pgTable("inbound_events", {
+  id: text("id").primaryKey(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 /**
@@ -86,6 +96,8 @@ export const messages = pgTable(
       .references(() => conversations.id),
     author: text("author", { enum: ["customer", "bot", "attendant", "system"] }).notNull(),
     text: text("text").notNull(),
+    /** WhatsApp replies only: whether WAHA accepted it. Null elsewhere. */
+    deliveryStatus: text("delivery_status", { enum: ["sent", "failed"] }),
     createdAt: createdAt(),
   },
   (t) => [index("messages_conversation_created_idx").on(t.conversationId, t.createdAt)],

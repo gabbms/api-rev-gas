@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { conversations, customerProfiles, orderDrafts } from "../../src/db/schema.js";
+import { conversations, customerProfiles, inboundEvents, messages, orderDrafts } from "../../src/db/schema.js";
 import type { Db } from "../../src/db/client.js";
 import { resetTables, setupTestDb } from "../helpers/testDb.js";
 
@@ -44,5 +44,19 @@ describe("database schema", () => {
     const [conv] = await db.insert(conversations).values({ phone: "86999998888" }).returning();
     await db.insert(orderDrafts).values({ conversationId: conv!.id, status: "created", payload, totalCents: 100 });
     await db.insert(orderDrafts).values({ conversationId: conv!.id, status: "open", payload, totalCents: 100 });
+  });
+
+  it("stores a conversation's channel ('simulated' by default) and reply address", async () => {
+    const [sim] = await db.insert(conversations).values({ phone: "86999998888" }).returning();
+    expect([sim?.channel, sim?.channelAddress]).toEqual(["simulated", null]);
+    const [wa] = await db.insert(conversations).values({ phone: "86911112222", channel: "whatsapp", channelAddress: "5586911112222" }).returning();
+    expect([wa?.channel, wa?.channelAddress]).toEqual(["whatsapp", "5586911112222"]);
+    const [m] = await db.insert(messages).values({ conversationId: wa!.id, author: "bot", text: "oi" }).returning();
+    expect(m?.deliveryStatus).toBeNull();
+  });
+
+  it("rejects the same inbound event id twice", async () => {
+    await db.insert(inboundEvents).values({ id: "false_5586@c.us_AAA" });
+    await expect(db.insert(inboundEvents).values({ id: "false_5586@c.us_AAA" })).rejects.toMatchObject({ cause: { code: "23505" } });
   });
 });
