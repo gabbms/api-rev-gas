@@ -107,6 +107,8 @@ Para conferir a configuração que depende da RevGás e se o token alcança cada
 | `REVGAS_PRICE_PRIORITY` | `false` | Com `true` e o cliente identificado na RevGás (exige `REVGAS_CUSTOMERS_ENABLED=true`), o preço vem do acordo do cliente, senão do acordo da categoria dele (`tag_id`), senão do acordo geral. O rascunho guarda de qual acordo veio cada preço. |
 | `DEFAULT_CITY` / `DEFAULT_STATE` | `Teresina` / `PI` | Cidade e UF de entrega usadas quando o cliente não diz outra. O bot não pergunta cidade nem estado; o resumo mostra a cidade e o cliente pode corrigir. |
 | `REVGAS_PRODUCT_IDS` | vazio | Lista de ids separados por vírgula. Preenchida, o bot só oferece esses produtos e os vasilhames ligados a eles (o 2580 tem vários "GLP 13KG TESTE" que confundem a IA). Exemplo no `.env.example`: `23740,23974,24141` (GLP 13kg, GLP 45kg e água 10L). |
+| `WHATSAPP_PROVIDER` | `off` | Com `waha`, o bot também atende pelo WhatsApp de um chip reserva conectado ao WAHA (não oficial, só para a demonstração; guia em [docs/WAHA.md](docs/WAHA.md)). Exige `WAHA_API_KEY` e `WAHA_WEBHOOK_SECRET`; sobe um segundo servidor em `127.0.0.1:3334` só com `POST /webhooks/waha`. Com `off`, nada muda e a porta 3334 nem abre. |
+| `WHATSAPP_ALLOWED_NUMBERS` | vazio | Com `waha`: só estes números (DDD + número, separados por vírgula) usam o bot pelo WhatsApp. Vazio = qualquer pessoa que souber o número do chip. |
 
 ### `REVGAS_WRITE_ENABLED` — por que está `false`
 
@@ -156,6 +158,33 @@ teste, e não chama a RevGás. Os números das vendas simuladas continuam cresce
 
 Também vale mostrar: mudar o pedido depois do resumo ("na verdade são 2") gera um resumo novo, e o
 "sim" anterior não vale para ele.
+
+## WhatsApp na apresentação (WAHA)
+
+Para a banca mandar mensagem do próprio celular. A preparação (segredos, `.env`, subir o WAHA, escanear o
+QR com o chip reserva) está em [docs/WAHA.md](docs/WAHA.md). Diga à banca que o WAHA **não é a API
+oficial** e que, em produção, o canal seria a API oficial da Meta. As vendas continuam simuladas.
+
+Antes de começar: `pnpm --filter server preflight` deve mostrar `WAHA_SESSION  default: WORKING  ok`, e
+os números de quem vai testar devem estar em `WHATSAPP_ALLOWED_NUMBERS`.
+
+Roteiro, do celular de quem testa para o número do chip:
+
+1. "oi, quero um botijão, pago no pix" → o bot responde no WhatsApp e pede nome, endereço e se tem vazio.
+   No painel, a conversa aparece com o selo **WhatsApp**.
+2. Mande o endereço e "não tenho vazio" → chega o resumo com o botão **Ver opções**, que abre
+   **Confirmar** e **Mudar algo**.
+3. Toque em **Confirmar** → "Pedido nº … registrado!" (venda simulada).
+4. Mande um áudio → "Por enquanto eu entendo só mensagens de texto. Pode escrever o seu pedido?".
+5. "quero falar com uma pessoa" → a conversa fica com o selo **Humano** no painel; responda pelo painel e
+   a resposta chega no celular. Depois clique em **Devolver ao bot**.
+6. Com a conversa aberta, **Ver bastidores** mostra o que a IA fez.
+
+Se uma resposta não chegar ao celular, o painel marca **não entregue** nela.
+
+**Plano B:** se o WhatsApp falhar na hora (sessão caiu, internet ruim), use o chat simulado à esquerda
+da tela com outro número; o atendimento é o mesmo. O chat simulado não deixa escrever no número de uma
+conversa do WhatsApp.
 
 ## Perguntas em aberto para a RevGás
 

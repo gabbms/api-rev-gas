@@ -144,8 +144,8 @@ adapte; não importe arquivos de lá. Se a leitura fora da pasta for bloqueada, 
 
 **Files:** `docs/WAHA.md` (adaptado do Rev-Gás), `README.md`
 
-- [ ] **Step 1:** `docs/WAHA.md` em português: aviso de não oficial e chip reserva; gerar os dois segredos no PowerShell; preencher o `.env`; `docker compose --profile whatsapp up -d`; abrir `http://localhost:3002/dashboard` (usuário `admin`, senha = `WAHA_API_KEY`), iniciar a sessão `default` e escanear o QR; `pnpm dev`; `preflight`; problemas comuns (webhook 401, `@lid`, host.docker.internal); não rodar o WAHA do Rev-Gás com o mesmo chip ao mesmo tempo; como desligar depois da apresentação.
-- [ ] **Step 2:** README: seção "WhatsApp na apresentação (WAHA)" com o roteiro pelo celular e o plano B (chat simulado).
-- [ ] **Step 3:** `pnpm test` e `pnpm -r exec tsc --noEmit` → tudo passando.
+- [x] **Step 1:** `docs/WAHA.md` em português: aviso de não oficial e chip reserva; gerar os dois segredos no PowerShell; preencher o `.env`; `docker compose --profile whatsapp up -d`; abrir `http://localhost:3002/dashboard` (usuário `admin`, senha = `WAHA_API_KEY`), iniciar a sessão `default` e escanear o QR; `pnpm dev`; `preflight`; problemas comuns (webhook 401, `@lid`, host.docker.internal); não rodar o WAHA do Rev-Gás com o mesmo chip ao mesmo tempo; como desligar depois da apresentação.
+- [x] **Step 2:** README: seção "WhatsApp na apresentação (WAHA)" com o roteiro pelo celular e o plano B (chat simulado).
+- [x] **Step 3:** `pnpm test` e `pnpm -r exec tsc --noEmit` → tudo passando.
 - [ ] **Step 4: Teste manual (depende do usuário ter o chip conectado):** de outro celular, "oi, quero um botijão, pago no pix" → resposta; endereço e "não tenho vazio" → resumo com a lista Confirmar/Mudar algo; "Confirmar" → "Pedido nº … registrado"; um áudio → resposta fixa; "quero falar com uma pessoa" → conversa no painel com selo WhatsApp; resposta pelo painel → chega no celular; devolver ao bot. Conferir que o WAHA alcança o :3334 (Task 3). Mostrar o log, sem segredos.
 - [ ] **Step 5:** Commit `docs: WAHA guide and WhatsApp demo script`.
