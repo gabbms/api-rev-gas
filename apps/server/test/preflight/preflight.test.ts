@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { loadConfig } from "../../src/config.js";
-import { assessConfig, checkWhatsapp, formatReport, probeRoutes } from "../../src/preflight/preflight.js";
+import { assessConfig, checkAudio, checkWhatsapp, formatReport, probeRoutes } from "../../src/preflight/preflight.js";
 import { RateLimiter } from "../../src/revgas/rateLimiter.js";
 
 const KEY = "preflight-secret-key-never-printed";
@@ -162,5 +162,52 @@ describe("checkWhatsapp", () => {
     expect(text).toContain("WhatsApp");
     expect(text).not.toContain(WAHA_KEY);
     expect(text).not.toContain("webhook-secret-never-printed");
+  });
+});
+
+describe("checkAudio", () => {
+  const GROQ = "groq-key-should-never-leak";
+  const groq = () =>
+    cfg({ WHATSAPP_PROVIDER: "waha", WAHA_API_KEY: "k", WAHA_WEBHOOK_SECRET: "s", AUDIO_TRANSCRIPTION: "groq", GROQ_API_KEY: GROQ });
+  const answering = (status: number) =>
+    vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(`{"error":"${GROQ}"}`, { status }));
+  const row = (rows: Awaited<ReturnType<typeof checkAudio>>) => rows.find((r) => r.name === "AUDIO_TRANSCRIPTION")!;
+
+  it("off: one row and no request", async () => {
+    const fetchFn = answering(200);
+    expect(await checkAudio(cfg(), fetchFn as unknown as typeof fetch)).toEqual([{ name: "AUDIO_TRANSCRIPTION", value: "off", warnings: [] }]);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it("200: ok, read-only GET /models with the Bearer key, and the privacy note", async () => {
+    const fetchFn = answering(200);
+    const r = row(await checkAudio(groq(), fetchFn as unknown as typeof fetch));
+    expect(r.value).toBe("groq (whisper-large-v3-turbo): ok");
+    expect(r.warnings).toEqual(["o áudio do cliente é enviado à Groq"]);
+    const [url, init] = fetchFn.mock.calls[0]!;
+    expect(String(url)).toBe("https://api.groq.com/openai/v1/models");
+    expect(init?.method ?? "GET").toBe("GET");
+    expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${GROQ}`);
+  });
+
+  it("401: chave recusada", async () => {
+    const r = row(await checkAudio(groq(), answering(401) as unknown as typeof fetch));
+    expect(r.value).toBe("groq (whisper-large-v3-turbo): chave recusada");
+    expect(r.warnings.join()).toContain("GROQ_API_KEY");
+  });
+
+  it("a thrown fetch: sem resposta", async () => {
+    const fetchFn = vi.fn(async () => {
+      throw new TypeError("fetch failed");
+    });
+    expect(row(await checkAudio(groq(), fetchFn as unknown as typeof fetch)).value).toBe("groq (whisper-large-v3-turbo): sem resposta");
+  });
+
+  it("never prints the key", async () => {
+    for (const status of [200, 401, 500]) {
+      const rows = await checkAudio(groq(), answering(status) as unknown as typeof fetch);
+      const text = formatReport(assessConfig(groq(), []), [], rows);
+      expect(text).not.toContain(GROQ);
+    }
   });
 });

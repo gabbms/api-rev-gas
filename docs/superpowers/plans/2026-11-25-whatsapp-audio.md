@@ -193,10 +193,17 @@ teste do prompt se existir
 - `docs/WAHA.md`: seção "Áudio" com o passo a passo do usuário (spec, seção 6) e o que fazer se não
   funcionar. `README.md`: variáveis novas.
 
-- [ ] **Step 1: Testes que falham** — preflight com fetch falso: 200 → `ok`; 401 → `chave recusada`;
+- [x] **Step 1: Testes que falham** — preflight com fetch falso: 200 → `ok`; 401 → `chave recusada`;
   exceção → `sem resposta`; a chave não aparece na saída; `off` não faz requisição.
-- [ ] **Step 2:** FAIL. **Step 3:** implementar. **Step 4:** PASS. `pnpm -r test` e `pnpm -r exec tsc --noEmit` limpos.
-- [ ] **Step 5:** Commit `feat: check audio transcription in preflight and enable WAHA media download`.
+- [x] **Step 2:** FAIL. **Step 3:** implementar. **Step 4:** PASS. `pnpm -r test` e `pnpm -r exec tsc --noEmit` limpos.
+- [x] **Step 5:** Commit `feat: check audio transcription in preflight and enable WAHA media download`.
+
+> **Encontrado na documentação do WAHA (2026-11-25):** `WHATSAPP_DOWNLOAD_MEDIA` e `WHATSAPP_FILES_MIMETYPES`
+> existem, mas estão obsoletas; as atuais são `WAHA_EVENTS_DOWNLOAD_MEDIA` e
+> `WAHA_EVENTS_DOWNLOAD_MEDIA_MIMETYPES` (separadas por vírgula, ex.: `audio,image/png`). `WHATSAPP_FILES_LIFETIME`
+> é em segundos, padrão 180 (0 desliga). O compose usa os nomes atuais com `audio` e mantém os antigos como
+> reserva; lifetime 300 s. `media.url` usa `WAHA_BASE_URL` (padrão `localhost:3000`) e o caminho
+> `/api/files/...`; `media.error` vem preenchido quando o download falha.
 
 ---
 

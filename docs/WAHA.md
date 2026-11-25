@@ -22,8 +22,9 @@ Celular de quem testa ─WhatsApp─> chip reserva ─QR─> WAHA (Docker, 127.0
   nunca fala com a porta 3333.
 - A porta 3334 tem uma rota só, `POST /webhooks/waha`, e recusa (401) qualquer chamada sem o segredo.
 - Mensagens repetidas, enviadas pelo próprio chip ou de grupos são ignoradas.
-- O bot entende só texto. Para áudio, foto, figurinha ou documento, responde "Por enquanto eu entendo
-  só mensagens de texto. Pode escrever o seu pedido?".
+- Com a transcrição ligada (seção "Áudio" abaixo), o bot entende áudio. Para foto, figurinha, vídeo ou
+  documento (e áudio, com a transcrição desligada), responde "Por enquanto eu entendo só mensagens de
+  texto. Pode escrever o seu pedido?".
 - O resumo do pedido chega com o botão **Ver opções**, que abre **Confirmar** e **Mudar algo**. Se a lista falhar,
   o resumo vai como texto, com "Responda *sim* para confirmar".
 - Nenhuma venda vai para a RevGás: `REVGAS_WRITE_ENABLED` continua `false` e as vendas são simuladas.
@@ -112,6 +113,61 @@ Na parte **WhatsApp**, `WAHA_SESSION` deve mostrar `default: WORKING` e `ok`.
 Do outro celular, mande "oi" para o número do chip. O bot responde no WhatsApp, e a conversa aparece
 no painel (aba **Atendimento**) com o selo **WhatsApp**. O roteiro completo está no `README.md`, em
 "WhatsApp na apresentação (WAHA)".
+
+## Áudio (transcrição pela Groq)
+
+O cliente pode mandar áudio: o bot baixa a nota de voz do WAHA, transcreve pela Groq e responde em
+texto, como se ele tivesse escrito. No painel, a mensagem aparece como `🎤 <o que foi entendido>`,
+inclusive quando a conversa está com um atendente (aí o bot não responde, só grava). O preço, o resumo
+e a confirmação continuam vindo do código: um "pode confirmar" falado só vale depois do resumo, como
+um "sim" escrito.
+
+**Privacidade:** o áudio do cliente é enviado à Groq, um serviço de fora. Para a demonstração, tudo
+bem; em produção, isso precisa entrar na política de privacidade da revenda (LGPD). O arquivo não é
+guardado: só o texto transcrito fica no banco, e o WAHA apaga o arquivo depois de 5 minutos.
+
+### Ligar
+
+1. Crie uma conta em https://console.groq.com, vá em **API Keys** e gere uma chave. Não cole a chave
+   no chat nem em nenhum arquivo além do `.env`.
+2. No `.env`:
+   ```
+   AUDIO_TRANSCRIPTION=groq
+   GROQ_API_KEY=<a chave da Groq>
+   ```
+   As outras variáveis (`TRANSCRIBE_URL`, `TRANSCRIBE_MODEL`, `AUDIO_MAX_BYTES`) já têm padrão; veja o
+   `.env.example`. O plano gratuito da Groq tem limite de pedidos por minuto e por dia: confira os
+   números atuais no console.
+3. Recrie o WAHA para ele passar a baixar áudio (a sessão continua; não precisa ler o QR de novo):
+   ```powershell
+   docker compose -f docker-compose.waha.yml up -d
+   ```
+4. Reinicie o `pnpm dev`. No terminal deve aparecer
+   `[áudio] transcrição ligada (whisper-large-v3-turbo); o áudio do cliente é enviado à Groq`.
+5. `pnpm --filter server preflight` deve mostrar `AUDIO_TRANSCRIPTION  groq (whisper-large-v3-turbo): ok`.
+
+### Respostas fixas
+
+| Situação | O bot responde |
+|---|---|
+| A transcrição falhou ou veio vazia (silêncio, Groq fora do ar, limite atingido) | "Não consegui entender o seu áudio. Pode escrever para mim?" |
+| Áudio maior que `AUDIO_MAX_BYTES` (padrão 2 MB, cerca de 3 a 4 minutos) | "Esse áudio ficou longo demais para mim. Pode mandar um mais curto ou escrever?" |
+
+Não há nova tentativa automática: o cliente é convidado a escrever.
+
+### Se não funcionar
+
+- **O bot responde "entendo só texto" a um áudio.** A transcrição está desligada (`AUDIO_TRANSCRIPTION`
+  não é `groq`, ou o `pnpm dev` não foi reiniciado), ou o WAHA não baixou o arquivo: recrie o WAHA
+  (passo 3) e confira em `docker compose -f docker-compose.waha.yml logs -f waha`.
+- **O bot responde "Não consegui entender o seu áudio".** Veja o terminal do servidor: a linha
+  `[áudio] falha ...` diz o tipo do erro (`auth 401` = chave errada; `rate_limited 429` = limite da
+  Groq; `network` = sem internet ou a Groq não respondeu). O conteúdo do áudio nunca vai para o log.
+- **O preflight mostra "chave recusada".** Gere outra chave no console da Groq e troque no `.env`.
+
+### Desligar
+
+`AUDIO_TRANSCRIPTION=off` no `.env` e reinicie o `pnpm dev`. Os áudios voltam a receber "entendo só texto".
 
 ## Problemas comuns
 

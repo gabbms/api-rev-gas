@@ -124,6 +124,37 @@ export async function checkWhatsapp(cfg: AppConfig, fetchFn: typeof fetch = fetc
   return rows;
 }
 
+/**
+ * AUDIO_TRANSCRIPTION and, with groq, whether the key works: a read-only GET /models (no audio is
+ * sent). Off: no request. Never prints the key or the response body.
+ */
+export async function checkAudio(cfg: AppConfig, fetchFn: typeof fetch = fetch): Promise<Row[]> {
+  if (cfg.audioTranscription === "off") return [{ name: "AUDIO_TRANSCRIPTION", value: "off", warnings: [] }];
+  const warnings = ["o áudio do cliente é enviado à Groq"];
+  const modelsUrl = cfg.transcribeUrl.replace(/\/audio\/transcriptions\/?$/, "/models");
+  let status: string;
+  try {
+    const res = await fetchFn(modelsUrl, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${cfg.groqApiKey ?? ""}`, Accept: "application/json" },
+      signal: AbortSignal.timeout(10_000),
+    });
+    await res.body?.cancel().catch(() => undefined);
+    if (res.ok) status = "ok";
+    else if (res.status === 401 || res.status === 403) {
+      status = "chave recusada";
+      warnings.push("a Groq recusou GROQ_API_KEY: gere outra no console da Groq");
+    } else {
+      status = `HTTP ${res.status}`;
+      warnings.push(`a Groq respondeu HTTP ${res.status}`);
+    }
+  } catch {
+    status = "sem resposta";
+    warnings.push("a Groq não respondeu: confira a internet e TRANSCRIBE_URL");
+  }
+  return [{ name: "AUDIO_TRANSCRIPTION", value: `groq (${cfg.transcribeModel}): ${status}`, warnings }];
+}
+
 function table(rows: Row[]): string[] {
   const nameW = Math.max(...rows.map((r) => r.name.length));
   const valueW = Math.max(...rows.map((r) => r.value.length));

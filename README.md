@@ -109,6 +109,9 @@ Para conferir a configuração que depende da RevGás e se o token alcança cada
 | `REVGAS_PRODUCT_IDS` | vazio | Lista de ids separados por vírgula. Preenchida, o bot só oferece esses produtos e os vasilhames ligados a eles (o 2580 tem vários "GLP 13KG TESTE" que confundem a IA). Exemplo no `.env.example`: `23740,23974,24141` (GLP 13kg, GLP 45kg e água 10L). |
 | `WHATSAPP_PROVIDER` | `off` | Com `waha`, o bot também atende pelo WhatsApp de um chip reserva conectado ao WAHA (não oficial, só para a demonstração; guia em [docs/WAHA.md](docs/WAHA.md)). Exige `WAHA_API_KEY` e `WAHA_WEBHOOK_SECRET`; sobe um segundo servidor em `127.0.0.1:3334` só com `POST /webhooks/waha`. Com `off`, nada muda e a porta 3334 nem abre. |
 | `WHATSAPP_ALLOWED_NUMBERS` | vazio | Com `waha`: só estes números (DDD + número, separados por vírgula) usam o bot pelo WhatsApp. Vazio = qualquer pessoa que souber o número do chip. |
+| `AUDIO_TRANSCRIPTION` | `off` | Com `groq` (exige `WHATSAPP_PROVIDER=waha` e `GROQ_API_KEY`), os áudios do WhatsApp são transcritos pela Groq e o bot responde como se o cliente tivesse escrito; o painel mostra `🎤 <transcrição>`. O áudio do cliente vai para a Groq. Com `off`, áudio recebe "entendo só texto". Guia na seção "Áudio" de [docs/WAHA.md](docs/WAHA.md). |
+| `TRANSCRIBE_URL` / `TRANSCRIBE_MODEL` | Groq / `whisper-large-v3-turbo` | Serviço e modelo de transcrição (qualquer um com a interface da OpenAI). |
+| `AUDIO_MAX_BYTES` | `2000000` | Áudio maior que isto não é transcrito: o bot pede um mais curto ou que o cliente escreva. |
 
 ### `REVGAS_WRITE_ENABLED` — por que está `false`
 
@@ -175,7 +178,9 @@ Roteiro, do celular de quem testa para o número do chip:
 2. Mande o endereço e "não tenho vazio" → chega o resumo com o botão **Ver opções**, que abre
    **Confirmar** e **Mudar algo**.
 3. Toque em **Confirmar** → "Pedido nº … registrado!" (venda simulada).
-4. Mande um áudio → "Por enquanto eu entendo só mensagens de texto. Pode escrever o seu pedido?".
+4. Mande um áudio. Com `AUDIO_TRANSCRIPTION=groq`, o bot entende e responde em texto, e o painel mostra
+   `🎤 <transcrição>`; dá para fazer o pedido inteiro por áudio, inclusive o "pode confirmar" depois do
+   resumo. Com `off`: "Por enquanto eu entendo só mensagens de texto. Pode escrever o seu pedido?".
 5. "quero falar com uma pessoa" → a conversa fica com o selo **Humano** no painel; responda pelo painel e
    a resposta chega no celular. Depois clique em **Devolver ao bot**.
 6. Com a conversa aberta, **Ver bastidores** mostra o que a IA fez.
